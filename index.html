@@ -2,15 +2,21 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>赛车淘汰之王 · The Eliminator 2D</title>
 <style>
-  /* ===== 全局重置与基础样式 ===== */
+  /* 全局重置与基础样式 */
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%; height: 100%; overflow: hidden;
     background: #0a0a0a; color: #fff;
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
   }
   /* Canvas 自适应窗口，保持 16:9 比例 */
   #game {
@@ -175,6 +181,56 @@
     font-size: 12px; color: #fff; display: none;
     pointer-events: none;
   }
+
+  /* ===== 手机触屏控制（仅触屏设备显示） ===== */
+  #touch-controls {
+    position: absolute; bottom: 0; left: 0;
+    width: 100%; height: 100%; pointer-events: none;
+    display: none;
+  }
+  /* 摇杆底座 */
+  #joystick-base {
+    position: absolute; bottom: 30px; left: 30px;
+    width: 130px; height: 130px; border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  /* 摇杆手柄 */
+  #joystick-stick {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px; height: 60px; border-radius: 50%;
+    background: rgba(80,180,255,0.7);
+    border: 2px solid rgba(255,255,255,0.6);
+    pointer-events: none;
+  }
+  /* 右下按钮组 */
+  .touch-btn {
+    position: absolute; border-radius: 50%;
+    pointer-events: auto; touch-action: none;
+    color: #fff; font-weight: bold; font-size: 13px;
+    border: 2px solid rgba(255,255,255,0.5);
+    display: flex; align-items: center; justify-content: center;
+    user-select: none;
+  }
+  #btn-gas     { bottom: 50px;  right: 30px; width: 80px; height: 80px;
+                 background: rgba(60,160,80,0.6); }
+  #btn-brake   { bottom: 140px; right: 30px; width: 60px; height: 60px;
+                 background: rgba(200,60,60,0.6); font-size: 18px; }
+  #btn-h2h     { bottom: 30px;  left: 50%; transform: translateX(-50%);
+                 width: 80px; height: 50px; border-radius: 25px;
+                 background: rgba(255,80,80,0.7); font-size: 12px; }
+  /* 桌面端隐藏触屏控件 */
+  @media (hover: hover) and (pointer: fine) {
+    #touch-controls { display: none !important; }
+  }
+  /* 触屏设备显示 */
+  @media (hover: none) and (pointer: coarse) {
+    #touch-controls { display: block; }
+    #hud-bottom { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -209,6 +265,14 @@
 
   <!-- 倒计时 -->
   <div id="countdown"></div>
+
+  <!-- 手机触屏控制 -->
+  <div id="touch-controls">
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <div class="touch-btn" id="btn-brake">⬇</div>
+    <div class="touch-btn" id="btn-gas">GO</div>
+    <div class="touch-btn" id="btn-h2h">1v1</div>
+  </div>
 
   <!-- 1v1 横幅 -->
   <div id="h2h-banner">1v1 对决！冲向金色检查点！</div>
@@ -247,7 +311,7 @@ const miniCanvas = document.getElementById('minimap');
 const miniCtx = miniCanvas.getContext('2d');
 
 // ===== 世界常量 =====
-const WORLD = { w: 2000, h: 2000 };   // 地图尺寸 2000x2000
+const WORLD = { w: 4000, h: 4000 };   // 地图尺寸 4000x4000（更大世界感）
 const TILE = 80;                       // 网格单元尺寸
 
 // ===== 车辆等级表（1~10 级）=====
@@ -281,12 +345,93 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-// ===== 画布自适应（保持 16:9）=====
+// ===== 触屏控制状态（手机端用）=====
+const touch = {
+  enabled: false,         // 是否启用触屏控制
+  joystick: { x: 0, y: 0, active: false },  // 摇杆向量（-1~1）
+  gas: false,             // 加速
+  brake: false,           // 刹车
+};
+
+// 检测触屏设备
+if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+  touch.enabled = true;
+  document.getElementById('touch-controls').style.display = 'block';
+}
+
+// 虚拟摇杆逻辑
+(function setupJoystick() {
+  const base = document.getElementById('joystick-base');
+  const stick = document.getElementById('joystick-stick');
+  if (!base || !stick) return;
+  let baseRect = null;
+  let touchId = null;
+
+  function start(e) {
+    e.preventDefault();
+    baseRect = base.getBoundingClientRect();
+    touchId = e.changedTouches[0].identifier;
+    move(e);
+    touch.joystick.active = true;
+  }
+  function move(e) {
+    if (touchId === null) return;
+    let t = null;
+    for (const ct of e.changedTouches) {
+      if (ct.identifier === touchId) { t = ct; break; }
+    }
+    if (!t) return;
+    const cx = baseRect.left + baseRect.width / 2;
+    const cy = baseRect.top + baseRect.height / 2;
+    let dx = t.clientX - cx;
+    let dy = t.clientY - cy;
+    const maxR = baseRect.width / 2;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
+    stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    touch.joystick.x = dx / maxR;
+    touch.joystick.y = dy / maxR;
+  }
+  function end(e) {
+    let ended = false;
+    for (const ct of e.changedTouches) {
+      if (ct.identifier === touchId) { ended = true; break; }
+    }
+    if (!ended) return;
+    touchId = null;
+    touch.joystick.active = false;
+    touch.joystick.x = 0; touch.joystick.y = 0;
+    stick.style.transform = 'translate(-50%, -50%)';
+  }
+  base.addEventListener('touchstart', start, { passive: false });
+  base.addEventListener('touchmove', move,  { passive: false });
+  base.addEventListener('touchend',  end,  { passive: false });
+  base.addEventListener('touchcancel', end, { passive: false });
+})();
+
+// 按钮：加速 / 刹车 / 1v1
+function bindTouchBtn(id, onDown, onUp) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const dn = e => { e.preventDefault(); onDown(); };
+  const up = e => { e.preventDefault(); onUp(); };
+  el.addEventListener('touchstart', dn, { passive: false });
+  el.addEventListener('touchend',   up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+}
+bindTouchBtn('btn-gas',   () => touch.gas = true,   () => touch.gas = false);
+bindTouchBtn('btn-brake', () => touch.brake = true, () => touch.brake = false);
+bindTouchBtn('btn-h2h',   () => tryTriggerHeadToHead(), () => {});
+
+// ===== 画布自适应（桌面端 16:9；移动端铺满全屏）=====
 function resizeCanvas() {
-  const aspect = 16 / 9;
   let w = window.innerWidth, h = window.innerHeight;
-  if (w / h > aspect) w = h * aspect;
-  else h = w / aspect;
+  if (!touch.enabled) {
+    // 桌面端保持 16:9
+    const aspect = 16 / 9;
+    if (w / h > aspect) w = h * aspect;
+    else h = w / aspect;
+  }
   canvas.width = w;
   canvas.height = h;
 }
@@ -410,13 +555,42 @@ class Car {
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // 玩家头顶标记
+    // 玩家头顶三角标记
     if (this.isPlayer) {
       ctx.fillStyle = '#6cf';
       ctx.beginPath();
-      ctx.arc(this.x, this.y - 28, 4, 0, Math.PI * 2);
+      ctx.moveTo(this.x, this.y - 32);
+      ctx.lineTo(this.x - 5, this.y - 42);
+      ctx.lineTo(this.x + 5, this.y - 42);
+      ctx.closePath();
       ctx.fill();
     }
+
+    // 车辆头顶等级标签（所有车都显示）
+    ctx.save();
+    // 等级背景颜色：1-3 灰，4-6 黄，7-9 橙，10 金
+    let badgeColor;
+    if (this.level >= 10) badgeColor = '#ffd700';
+    else if (this.level >= 7) badgeColor = '#ff8c00';
+    else if (this.level >= 4) badgeColor = '#ffd33d';
+    else badgeColor = '#999';
+
+    const badgeY = this.isPlayer ? this.y - 56 : this.y - 30;
+    // 圆形徽章
+    ctx.fillStyle = badgeColor;
+    ctx.beginPath();
+    ctx.arc(this.x, badgeY, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 等级数字
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(this.level), this.x, badgeY);
+    ctx.restore();
   }
 }
 
@@ -500,20 +674,20 @@ function initGame() {
     ais.push(ai);
   }
 
-  // 安全区：圆心随机，初始半径 1000
+  // 安全区：圆心随机，初始半径 1500（地图放大到 4000 后给予合理初始范围）
   const zone = {
     cx: WORLD.w / 2 + (Math.random() - 0.5) * 400,
     cy: WORLD.h / 2 + (Math.random() - 0.5) * 400,
-    radius: 1000,
+    radius: 1500,
     shrinkTimer: 0,         // 缩圈计时
     shrinkInterval: 20,    // 每 20 秒缩一次
-    shrinkAmount: 80,       // 每次缩 80
-    minRadius: 200,
+    shrinkAmount: 120,      // 每次缩 120
+    minRadius: 250,
   };
 
-  // 车包列表：初始生成 6 个
+  // 车包列表：初始生成 8 个（地图变大，车包数量也增加）
   const drops = [];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 8; i++) {
     drops.push(new CarDrop(
       200 + Math.random() * (WORLD.w - 400),
       200 + Math.random() * (WORLD.h - 400)
@@ -633,13 +807,25 @@ function update(dt) {
     }
   }
 
-  // ===== 玩家输入 =====
-  const input = {
-    forward: keys['w'] || keys['arrowup'],
-    back: keys['s'] || keys['arrowdown'],
-    left: keys['a'] || keys['arrowleft'],
-    right: keys['d'] || keys['arrowright'],
-  };
+  // ===== 玩家输入（融合键盘 + 触屏）=====
+  // 键盘
+  let forward = keys['w'] || keys['arrowup'];
+  let back    = keys['s'] || keys['arrowdown'];
+  let left    = keys['a'] || keys['arrowleft'];
+  let right   = keys['d'] || keys['arrowright'];
+  // 触屏摇杆（y 向上为负 → forward，左/右推力直接驱动转向）
+  if (touch.enabled && touch.joystick.active) {
+    if (touch.joystick.y < -0.25) forward = true;
+    if (touch.joystick.y >  0.25) back    = true;
+    if (touch.joystick.x < -0.25) left    = true;
+    if (touch.joystick.x >  0.25) right   = true;
+  }
+  // 触屏按钮
+  if (touch.enabled) {
+    if (touch.gas)   forward = true;
+    if (touch.brake) back    = true;
+  }
+  const input = { forward, back, left, right };
   game.player.update(dt, input);
 
   // ===== 靠近 AI 自动触发 1v1（距离 < 80）=====
