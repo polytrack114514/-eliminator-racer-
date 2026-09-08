@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>赛车淘汰之王 · The Eliminator 2D</title>
+<style>
+  /* ===== 全局重置与基础样式 ===== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #0a0a0a; color: #fff;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    user-select: none;
+  }
+  /* Canvas 自适应窗口，保持 16:9 比例 */
+  #game {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1a1a1a;
+    display: block;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    image-rendering: pixelated;
+  }
+
+  /* ===== HUD 左上角：血量/等级/速度 ===== */
+  #hud-left {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 14px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    min-width: 220px; pointer-events: none;
+  }
+  .hp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .hp-label { font-size: 13px; color: #ff6b6b; font-weight: bold; width: 28px; }
+  .hp-bar-bg {
+    flex: 1; height: 16px; background: #2a0a0a;
+    border: 1px solid #4a1a1a; border-radius: 3px; overflow: hidden;
+  }
+  #hp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ff3030, #ff6b6b);
+    transition: width 0.15s linear;
+  }
+  .stat-row {
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: #ddd; margin-top: 3px;
+  }
+  .stat-row .val { color: #ffd33d; font-weight: bold; }
+  #car-level-name { color: #6cf; }
+
+  /* ===== HUD 顶部中央：存活人数 ===== */
+  #hud-top {
+    position: absolute; top: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.55);
+    padding: 8px 18px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    text-align: center; pointer-events: none;
+  }
+  #alive-count { font-size: 26px; font-weight: bold; color: #fff; }
+  #alive-label { font-size: 11px; color: #999; letter-spacing: 1px; }
+
+  /* ===== HUD 右上角：小地图 ===== */
+  #minimap-wrap {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; padding: 4px;
+    pointer-events: none;
+  }
+  #minimap { display: block; background: #111; }
+
+  /* ===== HUD 底部：操作提示 ===== */
+  #hud-bottom {
+    position: absolute; bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.5);
+    padding: 6px 16px; border-radius: 6px;
+    font-size: 12px; color: #bbb;
+    pointer-events: none; letter-spacing: 0.5px;
+  }
+  #hud-bottom kbd {
+    background: #333; color: #fff; padding: 1px 5px;
+    border-radius: 3px; border: 1px solid #555;
+    font-family: monospace;
+  }
+
+  /* ===== 倒计时 3-2-1-GO ===== */
+  #countdown {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 120px; font-weight: bold;
+    color: #ffd33d; text-shadow: 0 0 30px rgba(255,210,60,0.9), 0 4px 8px #000;
+    pointer-events: none; display: none;
+    animation: cdpop 0.7s ease-out;
+  }
+  @keyframes cdpop {
+    0% { transform: translate(-50%,-50%) scale(2); opacity: 0; }
+    30% { opacity: 1; }
+    100% { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+  }
+
+  /* ===== 1v1 状态提示 ===== */
+  #h2h-banner {
+    position: absolute; top: 80px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,40,40,0.85);
+    padding: 6px 20px; border-radius: 4px;
+    font-size: 16px; font-weight: bold; color: #fff;
+    display: none; pointer-events: none;
+    border: 1px solid #ff8080;
+    text-shadow: 0 1px 2px #000;
+  }
+
+  /* ===== 1v1 胜利选择面板 ===== */
+  #choice-panel {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85);
+    border: 2px solid #ffd33d; border-radius: 12px;
+    padding: 24px 30px; display: none;
+    text-align: center; box-shadow: 0 0 40px rgba(255,210,60,0.4);
+  }
+  #choice-panel h2 { color: #ffd33d; margin-bottom: 6px; font-size: 22px; }
+  #choice-panel p { color: #ccc; font-size: 13px; margin-bottom: 18px; }
+  .choice-btn {
+    display: block; width: 280px; margin: 8px auto;
+    padding: 12px; font-size: 15px; font-weight: bold;
+    border: 2px solid #6cf; background: rgba(40,80,120,0.6);
+    color: #fff; border-radius: 8px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .choice-btn:hover { background: rgba(60,120,180,0.8); transform: translateY(-1px); }
+  .choice-btn.b { border-color: #6f6; background: rgba(40,100,60,0.6); }
+  .choice-btn.b:hover { background: rgba(60,140,80,0.8); }
+
+  /* ===== 游戏结束/胜利 ===== */
+  #end-screen {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.9);
+    border: 2px solid #ff3030; border-radius: 12px;
+    padding: 30px 50px; display: none;
+    text-align: center;
+    box-shadow: 0 0 50px rgba(255,40,40,0.5);
+  }
+  #end-screen.win { border-color: #ffd33d; box-shadow: 0 0 50px rgba(255,210,60,0.6); }
+  #end-screen h1 { font-size: 36px; margin-bottom: 10px; }
+  #end-screen.lose h1 { color: #ff3030; }
+  #end-screen.win h1 { color: #ffd33d; text-shadow: 0 0 20px rgba(255,210,60,0.8); }
+  #end-screen p { color: #ccc; margin-bottom: 18px; font-size: 14px; }
+  #restart-btn {
+    padding: 12px 32px; font-size: 16px; font-weight: bold;
+    background: #ffd33d; color: #000; border: none;
+    border-radius: 6px; cursor: pointer;
+  }
+  #restart-btn:hover { background: #ffe066; }
+
+  /* ===== 决赛圈提示 ===== */
+  #final-banner {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48px; font-weight: bold; color: #ffd33d;
+    text-shadow: 0 0 30px rgba(255,210,60,0.9), 0 4px 8px #000;
+    display: none; pointer-events: none; text-align: center;
+    animation: cdpop 0.7s ease-out;
+  }
+
+  /* ===== 隐身状态指示 ===== */
+  #stealth-indicator {
+    position: absolute; bottom: 50px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(100,100,255,0.7);
+    padding: 4px 14px; border-radius: 4px;
+    font-size: 12px; color: #fff; display: none;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <!-- 主游戏画布 -->
+  <canvas id="game"></canvas>
+
+  <!-- 左上角 HUD -->
+  <div id="hud-left">
+    <div class="hp-row">
+      <span class="hp-label">HP</span>
+      <div class="hp-bar-bg"><div id="hp-fill" style="width:100%"></div></div>
+    </div>
+    <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2</span></div>
+    <div class="stat-row"><span>当前速度</span><span class="val" id="speed-val">0</span></div>
+  </div>
+
+  <!-- 顶部存活人数 -->
+  <div id="hud-top">
+    <div id="alive-count">11</div>
+    <div id="alive-label">ALIVE</div>
+  </div>
+
+  <!-- 右上角小地图 -->
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="160" height="160"></canvas>
+  </div>
+
+  <!-- 底部操作提示 -->
+  <div id="hud-bottom">
+    <kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 停车2秒 <kbd>隐身</kbd>
+  </div>
+
+  <!-- 倒计时 -->
+  <div id="countdown"></div>
+
+  <!-- 1v1 横幅 -->
+  <div id="h2h-banner">1v1 对决！冲向金色检查点！</div>
+
+  <!-- 决赛圈横幅 -->
+  <div id="final-banner">决赛圈！冲向中心终点！</div>
+
+  <!-- 隐身指示 -->
+  <div id="stealth-indicator">隐身中 — AI 无法发现你</div>
+
+  <!-- 1v1 胜利选择面板 -->
+  <div id="choice-panel">
+    <h2>1v1 胜利！</h2>
+    <p id="choice-desc"></p>
+    <button class="choice-btn" id="choice-steal">夺取对方车辆</button>
+    <button class="choice-btn b" id="choice-upgrade">当前车辆升1级</button>
+  </div>
+
+  <!-- 结束画面 -->
+  <div id="end-screen">
+    <h1 id="end-title">GAME OVER</h1>
+    <p id="end-desc">你被淘汰了</p>
+    <button id="restart-btn">重新开始</button>
+  </div>
+
+<script>
+/* ============================================================
+ * 赛车淘汰之王 · The Eliminator 2D
+ * 单文件 HTML5 Canvas 游戏
+ * ============================================================ */
+
+// ===== 全局画布与上下文 =====
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const miniCanvas = document.getElementById('minimap');
+const miniCtx = miniCanvas.getContext('2d');
+
+// ===== 世界常量 =====
+const WORLD = { w: 2000, h: 2000 };   // 地图尺寸 2000x2000
+const TILE = 80;                       // 网格单元尺寸
+
+// ===== 车辆等级表（1~10 级）=====
+// [最大速度, 加速度, 转向速度]
+const CAR_LEVELS = {
+  1:  { maxSpeed: 80,  accel: 40,  turn: 1.5, name: '老甲壳虫' },
+  2:  { maxSpeed: 100, accel: 50,  turn: 1.6, name: '家用轿车' },
+  3:  { maxSpeed: 120, accel: 60,  turn: 1.7, name: '城市小跑' },
+  4:  { maxSpeed: 140, accel: 70,  turn: 1.8, name: '运动轿车' },
+  5:  { maxSpeed: 160, accel: 80,  turn: 1.9, name: '小钢炮' },
+  6:  { maxSpeed: 180, accel: 90,  turn: 2.0, name: '肌肉车' },
+  7:  { maxSpeed: 200, accel: 100, turn: 2.1, name: '入门超跑' },
+  8:  { maxSpeed: 220, accel: 110, turn: 2.2, name: '中级超跑' },
+  9:  { maxSpeed: 240, accel: 120, turn: 2.3, name: '顶级超跑' },
+  10: { maxSpeed: 260, accel: 130, turn: 2.4, name: '顶级神车' },
+};
+
+// ===== AI 颜色池 =====
+const AI_COLORS = ['#ff5252', '#ff9800', '#ab47bc', '#66bb6a', '#ec407a',
+                   '#7e57c2', '#26a69a', '#ffa726', '#ef5350', '#5c6bc0'];
+
+// ===== 游戏状态 =====
+let game; // 全局游戏状态对象
+
+// ===== 输入状态 =====
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  // 空格触发 1v1
+  if (e.key === ' ') { tryTriggerHeadToHead(); }
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ===== 画布自适应（保持 16:9）=====
+function resizeCanvas() {
+  const aspect = 16 / 9;
+  let w = window.innerWidth, h = window.innerHeight;
+  if (w / h > aspect) w = h * aspect;
+  else h = w / aspect;
+  canvas.width = w;
+  canvas.height = h;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+/* ============================================================
+ * 车辆类（玩家与 AI 共用基础）
+ * ============================================================ */
+class Car {
+  constructor(x, y, color, level, isPlayer = false) {
+    this.x = x; this.y = y;
+    this.angle = 0;          // 朝向弧度
+    this.speed = 0;          // 当前标量速度
+    this.color = color;
+    this.level = level;
+    this.isPlayer = isPlayer;
+    this.hp = 100;
+    this.alive = true;
+    this.stealth = false;    // 隐身状态
+    this.stillTimer = 0;     // 静止计时器（用于隐身）
+    this.w = 26; this.h = 40; // 车身尺寸
+    // AI 行为参数
+    this.aiTarget = null;    // AI 当前目标点
+    this.aiTimer = 0;        // AI 决策计时
+    this.aiSeekPlayer = false;
+  }
+
+  // 获取当前等级配置
+  get stats() { return CAR_LEVELS[this.level]; }
+
+  // 当前速度（px/s），带方向：正前进 / 负倒车
+  update(dt, input) {
+    if (!this.alive) return;
+    const st = this.stats;
+
+    // ===== 加速 / 刹车 / 倒车 =====
+    if (input.forward) {
+      this.speed += st.accel * dt;
+    } else if (input.back) {
+      this.speed -= st.accel * dt;
+    } else {
+      // 摩擦减速
+      const fr = 60 * dt;
+      if (this.speed > 0) this.speed = Math.max(0, this.speed - fr);
+      else if (this.speed < 0) this.speed = Math.min(0, this.speed + fr);
+    }
+    // 限速
+    const maxF = st.maxSpeed, maxB = st.maxSpeed * 0.4;
+    if (this.speed > maxF) this.speed = maxF;
+    if (this.speed < -maxB) this.speed = -maxB;
+
+    // ===== 转向（受速度影响）=====
+    let turn = 0;
+    if (input.left) turn -= 1;
+    if (input.right) turn += 1;
+    if (turn !== 0 && Math.abs(this.speed) > 1) {
+      // 速度越快转向越迟钝
+      const speedFactor = 1 - Math.min(0.6, Math.abs(this.speed) / st.maxSpeed * 0.6);
+      this.angle += turn * st.turn * speedFactor * dt;
+    }
+
+    // ===== 位置更新 =====
+    const vx = Math.cos(this.angle) * this.speed;
+    const vy = Math.sin(this.angle) * this.speed;
+    this.x += vx * dt;
+    this.y += vy * dt;
+
+    // ===== 边界墙碰撞反弹 =====
+    const margin = 20;
+    if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
+    if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
+    if (this.y < margin) { this.y = margin; this.speed *= -0.4; }
+    if (this.y > WORLD.h - margin) { this.y = WORLD.h - margin; this.speed *= -0.4; }
+
+    // ===== 隐身检测：完全停住2秒 =====
+    if (Math.abs(this.speed) < 2 && !input.forward && !input.back) {
+      this.stillTimer += dt;
+      if (this.stillTimer >= 2) this.stealth = true;
+    } else {
+      this.stillTimer = 0;
+      this.stealth = false;
+    }
+  }
+
+  // 绘制车辆（世界坐标已应用摄像机变换）
+  draw(ctx) {
+    if (!this.alive) return;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+
+    // 等级越高，车身越亮
+    const bright = 0.4 + this.level * 0.06;
+    // 隐身玩家变暗
+    const alpha = this.stealth ? 0.35 : 1;
+
+    // 车头微光（等级>=6 才显示）
+    if (this.level >= 6) {
+      ctx.fillStyle = `rgba(255,255,200,${0.3 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(this.h / 2, 0, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 车身矩形
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    ctx.fillRect(-this.h / 2, -this.w / 2, this.h, this.w);
+    // 车身高亮描边
+    ctx.strokeStyle = `rgba(255,255,255,${0.4 + bright * 0.3})`;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(-this.h / 2, -this.w / 2, this.h, this.w);
+
+    // 前轮（两个小圆）
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(this.h / 2 - 4, -this.w / 2 + 3, 3, 0, Math.PI * 2);
+    ctx.arc(this.h / 2 - 4, this.w / 2 - 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // 玩家头顶标记
+    if (this.isPlayer) {
+      ctx.fillStyle = '#6cf';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y - 28, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/* ============================================================
+ * 车包（Car Drop）类
+ * ============================================================ */
+class CarDrop {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.level = Math.floor(Math.random() * 10) + 1; // 1~10
+    this.taken = false;
+    this.particles = []; // 烟雾粒子
+    this.t = 0;
+  }
+  update(dt) {
+    this.t += dt;
+    // 生成上升粒子
+    if (Math.random() < 0.5) {
+      this.particles.push({
+        x: this.x + (Math.random() - 0.5) * 20,
+        y: this.y,
+        vy: -30 - Math.random() * 40,
+        life: 1.5,
+        r: 6 + Math.random() * 6,
+      });
+    }
+    // 更新粒子
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) this.particles.splice(i, 1);
+    }
+  }
+  draw(ctx) {
+    if (this.taken) return;
+    // 地面发光圆圈
+    ctx.fillStyle = 'rgba(170,80,255,0.25)';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,140,255,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 紫色烟雾柱（多个半透明圆叠加）
+    for (let i = 0; i < 5; i++) {
+      const off = (this.t * 40 + i * 14) % 70;
+      const a = 0.3 * (1 - off / 70);
+      ctx.fillStyle = `rgba(180,90,255,${a})`;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y - off, 14 - off * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 上升粒子
+    for (const p of this.particles) {
+      const a = Math.max(0, p.life / 1.5) * 0.5;
+      ctx.fillStyle = `rgba(200,120,255,${a})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/* ============================================================
+ * 游戏初始化
+ * ============================================================ */
+function initGame() {
+  // 创建玩家（Level 2，蓝色），出生在地图中央
+  const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
+
+  // 创建 10 个 AI，等级随机 1~8
+  const ais = [];
+  for (let i = 0; i < 10; i++) {
+    const lvl = Math.floor(Math.random() * 8) + 1;
+    const x = 200 + Math.random() * (WORLD.w - 400);
+    const y = 200 + Math.random() * (WORLD.h - 400);
+    const ai = new Car(x, y, AI_COLORS[i % AI_COLORS.length], lvl, false);
+    ai.angle = Math.random() * Math.PI * 2;
+    ais.push(ai);
+  }
+
+  // 安全区：圆心随机，初始半径 1000
+  const zone = {
+    cx: WORLD.w / 2 + (Math.random() - 0.5) * 400,
+    cy: WORLD.h / 2 + (Math.random() - 0.5) * 400,
+    radius: 1000,
+    shrinkTimer: 0,         // 缩圈计时
+    shrinkInterval: 20,    // 每 20 秒缩一次
+    shrinkAmount: 80,       // 每次缩 80
+    minRadius: 200,
+  };
+
+  // 车包列表：初始生成 6 个
+  const drops = [];
+  for (let i = 0; i < 6; i++) {
+    drops.push(new CarDrop(
+      200 + Math.random() * (WORLD.w - 400),
+      200 + Math.random() * (WORLD.h - 400)
+    ));
+  }
+
+  game = {
+    player, ais, zone, drops,
+    allCars: () => [player, ...ais].filter(c => c.alive),
+    // 1v1 状态
+    h2h: null,            // {target, countdown, checkpoint, started, finished}
+    h2hTimer: 0,
+    // 决赛圈
+    finalPhase: false,
+    finalPoint: { x: WORLD.w / 2, y: WORLD.h / 2 },
+    // 游戏状态
+    state: 'playing',     // playing / h2h / choice / final / over / win
+    over: false,
+    // 摄像机
+    cam: { x: player.x, y: player.y },
+    // 车包刷新计时
+    dropTimer: 0,
+    // 倒计时显示
+    countdownText: '',
+    countdownTimer: 0,
+  };
+}
+
+/* ============================================================
+ * 尝试触发 1v1 挑战
+ * ============================================================ */
+function tryTriggerHeadToHead() {
+  if (!game || game.state !== 'playing' || game.finalPhase) return;
+  if (!game.player.alive) return;
+  // 寻找最近的存活 AI（距离 < 200，提示用）
+  let nearest = null, nd = Infinity;
+  for (const ai of game.ais) {
+    if (!ai.alive) continue;
+    const d = Math.hypot(ai.x - game.player.x, ai.y - game.player.y);
+    if (d < nd) { nd = d; nearest = ai; }
+  }
+  // 空格触发：距离 < 250
+  if (nearest && nd < 250) {
+    startHeadToHead(nearest);
+  }
+}
+
+/* ============================================================
+ * 开始 1v1
+ * ============================================================ */
+function startHeadToHead(target) {
+  // 在地图上随机生成检查点（金色圆圈）
+  const cp = {
+    x: 200 + Math.random() * (WORLD.w - 400),
+    y: 200 + Math.random() * (WORLD.h - 400),
+  };
+  game.h2h = {
+    target,
+    checkpoint: cp,
+    phase: 'countdown',  // countdown -> racing -> done
+    timer: 0,
+    winner: null,
+  };
+  game.state = 'h2h';
+  game.h2hTimer = 0;
+  // 倒计时 3,2,1,GO
+  game.countdownText = '3';
+  game.countdownTimer = 0;
+  document.getElementById('h2h-banner').style.display = 'block';
+}
+
+/* ============================================================
+ * 结束 1v1（实现见文件末尾，以保存对手引用供选择面板使用）
+ * ============================================================ */
+
+/* ============================================================
+ * 显示结束画面
+ * ============================================================ */
+function showEndScreen(win, desc) {
+  game.state = win ? 'win' : 'over';
+  game.over = true;
+  const screen = document.getElementById('end-screen');
+  screen.className = win ? 'win' : 'lose';
+  document.getElementById('end-title').textContent = win ? 'WINNER!' : 'GAME OVER';
+  document.getElementById('end-desc').textContent = desc;
+  screen.style.display = 'block';
+}
+
+/* ============================================================
+ * 主更新逻辑
+ * ============================================================ */
+function update(dt) {
+  if (game.over) return;
+
+  // ===== 处理 1v1 倒计时与比赛 =====
+  if (game.state === 'h2h' && game.h2h) {
+    const h = game.h2h;
+    h.timer += dt;
+
+    if (h.phase === 'countdown') {
+      game.countdownTimer += dt;
+      const sec = game.countdownTimer;
+      if (sec < 1) game.countdownText = '3';
+      else if (sec < 2) game.countdownText = '2';
+      else if (sec < 3) game.countdownText = '1';
+      else if (sec < 3.6) game.countdownText = 'GO!';
+      else {
+        h.phase = 'racing';
+        game.countdownText = '';
+      }
+    } else if (h.phase === 'racing') {
+      // 判断谁先到达检查点
+      const cpD_p = Math.hypot(h.checkpoint.x - game.player.x, h.checkpoint.y - game.player.y);
+      const cpD_t = Math.hypot(h.checkpoint.x - h.target.x, h.checkpoint.y - h.target.y);
+      if (cpD_p < 40) { endHeadToHead(true); return; }
+      if (cpD_t < 40) { endHeadToHead(false); return; }
+    }
+  }
+
+  // ===== 玩家输入 =====
+  const input = {
+    forward: keys['w'] || keys['arrowup'],
+    back: keys['s'] || keys['arrowdown'],
+    left: keys['a'] || keys['arrowleft'],
+    right: keys['d'] || keys['arrowright'],
+  };
+  game.player.update(dt, input);
+
+  // ===== 靠近 AI 自动触发 1v1（距离 < 80）=====
+  if (game.state === 'playing' && !game.finalPhase && game.player.alive) {
+    for (const ai of game.ais) {
+      if (!ai.alive) continue;
+      const d = Math.hypot(ai.x - game.player.x, ai.y - game.player.y);
+      if (d < 80) {
+        startHeadToHead(ai);
+        break;
+      }
+    }
+  }
+
+  // ===== AI 更新 =====
+  for (const ai of game.ais) {
+    if (!ai.alive) continue;
+    updateAI(ai, dt);
+    ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false });
+  }
+
+  // ===== 安全区缩小 =====
+  game.zone.shrinkTimer += dt;
+  if (game.zone.shrinkTimer >= game.zone.shrinkInterval) {
+    game.zone.shrinkTimer = 0;
+    game.zone.radius = Math.max(game.zone.minRadius, game.zone.radius - game.zone.shrinkAmount);
+  }
+  // 圆心缓慢向地图中心移动
+  const tx = WORLD.w / 2, ty = WORLD.h / 2;
+  game.zone.cx += (tx - game.zone.cx) * 0.05 * dt;
+  game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
+
+  // ===== 圈外扣血 =====
+  const allCars = game.allCars();
+  for (const c of allCars) {
+    const d = Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy);
+    if (d > game.zone.radius) {
+      c.hp -= 10 * dt;
+      if (c.hp <= 0) {
+        c.hp = 0;
+        c.alive = false;
+        if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！');
+      }
+    }
+  }
+
+  // ===== 车包更新与拾取 =====
+  game.dropTimer += dt;
+  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 6) {
+    game.dropTimer = 0;
+    game.drops.push(new CarDrop(
+      200 + Math.random() * (WORLD.w - 400),
+      200 + Math.random() * (WORLD.h - 400)
+    ));
+  }
+  for (const drop of game.drops) {
+    if (drop.taken) continue;
+    drop.update(dt);
+    // 检测拾取
+    for (const c of allCars) {
+      if (!c.alive) continue;
+      const d = Math.hypot(c.x - drop.x, c.y - drop.y);
+      if (d < 30) {
+        drop.taken = true;
+        // 立即换一辆随机等级的新车（1~10）
+        const newLevel = Math.floor(Math.random() * 10) + 1;
+        c.level = newLevel;
+        break;
+      }
+    }
+  }
+  // 清理已拾取的车包
+  game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
+
+  // ===== 决赛圈触发（存活 ≤ 5）=====
+  const aliveCount = allCars.length;
+  if (!game.finalPhase && aliveCount <= 5) {
+    game.finalPhase = true;
+    game.state = 'final';
+    const fb = document.getElementById('final-banner');
+    fb.style.display = 'block';
+    setTimeout(() => { fb.style.display = 'none'; }, 2500);
+  }
+
+  // ===== 决赛圈：检测是否到达终点 =====
+  if (game.finalPhase) {
+    const fp = game.finalPoint;
+    for (const c of allCars) {
+      const d = Math.hypot(c.x - fp.x, c.y - fp.y);
+      if (d < 40) {
+        if (c.isPlayer) {
+          showEndScreen(true, '你是淘汰之王！');
+        } else {
+          // AI 先到终点，玩家失败
+          showEndScreen(false, 'AI 抢先到达终点');
+        }
+        return;
+      }
+    }
+  }
+
+  // ===== 摄像机跟随玩家 =====
+  game.cam.x += (game.player.x - game.cam.x) * 0.1;
+  game.cam.y += (game.player.y - game.cam.y) * 0.1;
+}
+
+/* ============================================================
+ * AI 行为更新
+ * - 随机游走，偶尔向玩家移动，避开边界墙
+ * - 主动拾取附近车包
+ * - 玩家隐身时不主动靠近
+ * ============================================================ */
+function updateAI(ai, dt) {
+  ai.aiTimer -= dt;
+  // 决赛圈：所有 AI 冲向终点
+  if (game.finalPhase) {
+    steerTowards(ai, game.finalPoint.x, game.finalPoint.y, dt);
+    ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
+    return;
+  }
+  // 1v1 中：AI 冲向检查点
+  if (game.state === 'h2h' && game.h2h && game.h2h.target === ai && game.h2h.phase === 'racing') {
+    steerTowards(ai, game.h2h.checkpoint.x, game.h2h.checkpoint.y, dt);
+    ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
+    return;
+  }
+
+  // 决策：每 2~4 秒切换目标
+  if (ai.aiTimer <= 0 || !ai.aiTarget) {
+    ai.aiTimer = 2 + Math.random() * 3;
+
+    // 优先：附近车包
+    let nearestDrop = null, nd = 400;
+    for (const d of game.drops) {
+      if (d.taken) continue;
+      const dist = Math.hypot(d.x - ai.x, d.y - ai.y);
+      if (dist < nd) { nd = dist; nearestDrop = d; }
+    }
+
+    // 概率：靠近玩家（仅当玩家未隐身）
+    if (!game.player.stealth && game.player.alive && Math.random() < 0.35) {
+      ai.aiSeekPlayer = true;
+      ai.aiTarget = { x: game.player.x, y: game.player.y };
+    } else if (nearestDrop) {
+      ai.aiSeekPlayer = false;
+      ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y };
+    } else {
+      ai.aiSeekPlayer = false;
+      // 随机游走点
+      ai.aiTarget = {
+        x: 200 + Math.random() * (WORLD.w - 400),
+        y: 200 + Math.random() * (WORLD.h - 400),
+      };
+    }
+  }
+
+  // 边界避让：靠近边界则强制调头
+  const edge = 150;
+  if (ai.x < edge || ai.x > WORLD.w - edge || ai.y < edge || ai.y > WORLD.h - edge) {
+    ai.aiTarget = { x: WORLD.w / 2, y: WORLD.h / 2 };
+  }
+
+  // 圈外时主动往圈内走
+  const dz = Math.hypot(ai.x - game.zone.cx, ai.y - game.zone.cy);
+  if (dz > game.zone.radius - 50) {
+    ai.aiTarget = { x: game.zone.cx, y: game.zone.cy };
+  }
+
+  steerTowards(ai, ai.aiTarget.x, ai.aiTarget.y, dt);
+  ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
+}
+
+// 让 AI 朝目标点转向，设置 ai._turn (-1/0/1)
+function steerTowards(ai, tx, ty, dt) {
+  const desired = Math.atan2(ty - ai.y, tx - ai.x);
+  let diff = desired - ai.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  // 转向
+  const turnRate = ai.stats.turn * 1.2;
+  if (Math.abs(diff) > 0.1) {
+    ai.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
+    ai._turn = Math.sign(diff);
+  } else {
+    ai._turn = 0;
+  }
+}
+
+/* ============================================================
+ * 渲染主函数
+ * ============================================================ */
+function render() {
+  // 清屏
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 摄像机变换：以画布中心为原点
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.translate(-game.cam.x, -game.cam.y);
+
+  // ===== 绘制世界背景（网格）=====
+  drawWorld();
+
+  // ===== 绘制安全区与圈外危险区 =====
+  drawZone();
+
+  // ===== 绘制决赛终点 =====
+  if (game.finalPhase) drawFinalPoint();
+
+  // ===== 绘制车包 =====
+  for (const d of game.drops) d.draw(ctx);
+
+  // ===== 绘制 1v1 检查点 =====
+  if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') {
+    drawCheckpoint(game.h2h.checkpoint);
+  }
+
+  // ===== 绘制车辆 =====
+  for (const c of game.allCars()) c.draw(ctx);
+
+  ctx.restore();
+
+  // ===== 绘制 HUD =====
+  drawHUD();
+  drawMinimap();
+
+  // ===== 倒计时文字 =====
+  const cd = document.getElementById('countdown');
+  if (game.countdownText) {
+    cd.textContent = game.countdownText;
+    cd.style.display = 'block';
+  } else {
+    cd.style.display = 'none';
+  }
+
+  // ===== 隐身指示 =====
+  document.getElementById('stealth-indicator').style.display =
+    (game.player.stealth && game.player.alive) ? 'block' : 'none';
+}
+
+/* ============================================================
+ * 绘制世界网格背景
+ * ============================================================ */
+function drawWorld() {
+  // 视口范围
+  const halfW = canvas.width / 2, halfH = canvas.height / 2;
+  const x0 = Math.max(0, game.cam.x - halfW - TILE);
+  const y0 = Math.max(0, game.cam.y - halfH - TILE);
+  const x1 = Math.min(WORLD.w, game.cam.x + halfW + TILE);
+  const y1 = Math.min(WORLD.h, game.cam.y + halfH + TILE);
+
+  // 深灰底
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+
+  // 网格线
+  ctx.strokeStyle = '#2a2a2a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = Math.floor(x0 / TILE) * TILE; x <= x1; x += TILE) {
+    ctx.moveTo(x, y0); ctx.lineTo(x, y1);
+  }
+  for (let y = Math.floor(y0 / TILE) * TILE; y <= y1; y += TILE) {
+    ctx.moveTo(x0, y); ctx.lineTo(x1, y);
+  }
+  ctx.stroke();
+
+  // 边界墙
+  ctx.strokeStyle = '#ff5252';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, WORLD.w - 4, WORLD.h - 4);
+}
+
+/* ============================================================
+ * 绘制安全区与圈外
+ * ============================================================ */
+function drawZone() {
+  const z = game.zone;
+  // 圈外深红半透明覆盖（用 evenodd 规则挖洞）
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, WORLD.w, WORLD.h);
+  ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2, true);
+  ctx.fillStyle = 'rgba(120,0,0,0.35)';
+  ctx.fill('evenodd');
+  ctx.restore();
+
+  // 安全区内浅灰
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(180,180,200,0.05)';
+  ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+  ctx.restore();
+
+  // 安全区蓝圈边框
+  ctx.strokeStyle = 'rgba(80,180,255,0.8)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+/* ============================================================
+ * 绘制决赛终点（金色光圈）
+ * ============================================================ */
+function drawFinalPoint() {
+  const p = game.finalPoint;
+  const t = performance.now() / 1000;
+  // 外圈脉冲
+  for (let i = 0; i < 3; i++) {
+    const r = 50 + (t * 30 + i * 20) % 60;
+    ctx.strokeStyle = `rgba(255,210,60,${0.5 - i * 0.15})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // 中心光柱
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 60);
+  grad.addColorStop(0, 'rgba(255,230,100,0.8)');
+  grad.addColorStop(1, 'rgba(255,210,60,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 60, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ============================================================
+ * 绘制 1v1 检查点（金色圆环 + 光柱）
+ * ============================================================ */
+function drawCheckpoint(cp) {
+  const t = performance.now() / 1000;
+  // 光柱
+  const grad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 40);
+  grad.addColorStop(0, 'rgba(255,220,80,0.7)');
+  grad.addColorStop(1, 'rgba(255,210,60,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cp.x, cp.y, 40, 0, Math.PI * 2);
+  ctx.fill();
+  // 圆环
+  ctx.strokeStyle = '#ffd33d';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cp.x, cp.y, 25 + Math.sin(t * 4) * 3, 0, Math.PI * 2);
+  ctx.stroke();
+  // 中心点
+  ctx.fillStyle = '#ffd33d';
+  ctx.beginPath();
+  ctx.arc(cp.x, cp.y, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ============================================================
+ * 绘制 HUD（左上角文字更新）
+ * ============================================================ */
+function drawHUD() {
+  // 血量条
+  document.getElementById('hp-fill').style.width = Math.max(0, game.player.hp) + '%';
+  // 车辆等级
+  const lvl = game.player.level;
+  document.getElementById('car-level-name').textContent = `Lv.${lvl} ${CAR_LEVELS[lvl].name}`;
+  // 速度
+  document.getElementById('speed-val').textContent = Math.round(Math.abs(game.player.speed));
+  // 存活人数
+  document.getElementById('alive-count').textContent = game.allCars().length;
+}
+
+/* ============================================================
+ * 绘制小地图
+ * ============================================================ */
+function drawMinimap() {
+  const W = miniCanvas.width, H = miniCanvas.height;
+  const sx = W / WORLD.w, sy = H / WORLD.h;
+  miniCtx.fillStyle = '#111';
+  miniCtx.fillRect(0, 0, W, H);
+
+  // 安全区
+  const z = game.zone;
+  miniCtx.strokeStyle = 'rgba(80,180,255,0.8)';
+  miniCtx.lineWidth = 1;
+  miniCtx.beginPath();
+  miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2);
+  miniCtx.stroke();
+
+  // 车包
+  for (const d of game.drops) {
+    if (d.taken) continue;
+    miniCtx.fillStyle = '#bb5cff';
+    miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3);
+  }
+
+  // 检查点
+  if (game.h2h && game.h2h.checkpoint) {
+    const cp = game.h2h.checkpoint;
+    miniCtx.fillStyle = '#ffd33d';
+    miniCtx.beginPath();
+    miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2);
+    miniCtx.fill();
+  }
+
+  // 决赛终点
+  if (game.finalPhase) {
+    miniCtx.fillStyle = '#ffd33d';
+    miniCtx.beginPath();
+    miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2);
+    miniCtx.fill();
+  }
+
+  // AI
+  for (const ai of game.ais) {
+    if (!ai.alive) continue;
+    miniCtx.fillStyle = ai.color;
+    miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2);
+  }
+
+  // 玩家
+  if (game.player.alive) {
+    miniCtx.fillStyle = game.player.stealth ? 'rgba(50,150,255,0.4)' : '#3399ff';
+    miniCtx.beginPath();
+    miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2);
+    miniCtx.fill();
+  }
+
+  // 边框
+  miniCtx.strokeStyle = '#444';
+  miniCtx.lineWidth = 1;
+  miniCtx.strokeRect(0.5, 0.5, W - 1, H - 1);
+}
+
+/* ============================================================
+ * 主循环
+ * ============================================================ */
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  if (game && !game.over) update(dt);
+  if (game) render();
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+ * 1v1 胜利选择按钮
+ * ============================================================ */
+document.getElementById('choice-steal').addEventListener('click', () => {
+  // 夺取对方的车（如果对方等级更高）
+  // 这里我们直接拿对方等级
+  // 找到最后被击败的 AI（在 h2h._target 之前保存过）
+  // 简化：从 h2h 中我们已经 endHeadToHead 清空了引用，所以需要另一种方式
+  // 修复：在 endHeadToHead 之前保存对手等级
+  const targetLevel = game._lastDefeatedLevel || 3;
+  if (targetLevel > game.player.level) {
+    game.player.level = targetLevel;
+  } else {
+    // 对方等级不高，给个提示后改用升级
+    game.player.level = Math.min(10, game.player.level + 1);
+  }
+  closeChoicePanel();
+  eliminateLastDefeated();
+});
+document.getElementById('choice-upgrade').addEventListener('click', () => {
+  game.player.level = Math.min(10, game.player.level + 1);
+  closeChoicePanel();
+  eliminateLastDefeated();
+});
+function closeChoicePanel() {
+  document.getElementById('choice-panel').style.display = 'none';
+  game.state = 'playing';
+}
+function eliminateLastDefeated() {
+  // 1v1 胜利后淘汰对手
+  if (game._lastDefeated) {
+    game._lastDefeated.alive = false;
+    game._lastDefeated = null;
+  }
+}
+
+/* ============================================================
+ * 重新开始按钮
+ * ============================================================ */
+document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('end-screen').style.display = 'none';
+  document.getElementById('choice-panel').style.display = 'none';
+  document.getElementById('h2h-banner').style.display = 'none';
+  document.getElementById('final-banner').style.display = 'none';
+  initGame();
+});
+
+/* ============================================================
+ * 结束 1v1：保存对手引用与等级，供选择面板使用
+ * ============================================================ */
+function endHeadToHead(playerWon) {
+  const h = game.h2h;
+  document.getElementById('h2h-banner').style.display = 'none';
+  if (playerWon) {
+    // 保存对手引用与等级
+    game._lastDefeated = h.target;
+    game._lastDefeatedLevel = h.target.level;
+    game.state = 'choice';
+    const desc = document.getElementById('choice-desc');
+    desc.textContent = `击败了 Lv.${h.target.level} ${CAR_LEVELS[h.target.level].name}。选择奖励：`;
+    document.getElementById('choice-panel').style.display = 'block';
+  } else {
+    game.player.alive = false;
+    game.player.hp = 0;
+    showEndScreen(false, '你在 1v1 中落败，被淘汰！');
+  }
+  game.h2h = null;
+}
+
+/* ============================================================
+ * 启动游戏
+ * ============================================================ */
+initGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
