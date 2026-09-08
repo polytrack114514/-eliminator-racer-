@@ -311,9 +311,70 @@ const miniCanvas = document.getElementById('minimap');
 const miniCtx = miniCanvas.getContext('2d');
 
 // ===== 世界常量 =====
-const WORLD = { w: 6000, h: 6000 };   // 地图尺寸 6000x6000（更大世界感）
-const CAM_ZOOM = 0.65;                   // 摄像机缩放：缩小后视野更广，世界感更强
+const WORLD = { w: 8000, h: 8000 };   // 地图尺寸 8000x8000（大世界，车辆不挤）
+const CAM_ZOOM = 0.55;                  // 摄像机缩放：视野更广，世界感更强
 const TILE = 80;                       // 网格单元尺寸
+
+/* ============================================================
+ * 公路系统（参考地平线淘汰之王：主干道+乡村路网）
+ * ============================================================ */
+// 道路定义：每条道路是一条线段，包含端点与宽度
+// 主干道是横纵两条穿越地图的高速；乡村路是网格状次干道
+const ROADS = (() => {
+  const list = [];
+  // === 主干道（高速公路）：横纵两条穿越整张地图 ===
+  // 横向主干（在地图中央 y=4000）
+  list.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 100, type: 'highway' });
+  // 纵向主干（在地图中央 x=4000）
+  list.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 100, type: 'highway' });
+  // 对角线高速（增加变化感）
+  list.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 70, type: 'highway' });
+  list.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 70, type: 'highway' });
+
+  // === 乡村路（次干道）：网格状 ===
+  // 横向乡村路：每 1000 像素一条
+  for (let y = 1000; y < WORLD.h; y += 1000) {
+    if (Math.abs(y - WORLD.h/2) < 50) continue;  // 跳过与主干重合
+    list.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 50, type: 'local' });
+  }
+  // 纵向乡村路
+  for (let x = 1000; x < WORLD.w; x += 1000) {
+    if (Math.abs(x - WORLD.w/2) < 50) continue;
+    list.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 50, type: 'local' });
+  }
+  return list;
+})();
+
+// 判断一个点是否在公路上（返回是否在主干/乡村路上）
+function pointOnRoad(x, y) {
+  for (const r of ROADS) {
+    // 点到线段距离
+    const dx = r.x2 - r.x1, dy = r.y2 - r.y1;
+    const len2 = dx*dx + dy*dy;
+    if (len2 === 0) continue;
+    let t = ((x - r.x1)*dx + (y - r.y1)*dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const px = r.x1 + t*dx, py = r.y1 + t*dy;
+    const d = Math.hypot(x - px, y - py);
+    if (d < r.w/2) return r.type;  // 'highway' or 'local'
+  }
+  return null;
+}
+
+// 在公路沿线随机生成一点（车包/检查点/出生位置用）
+function randomPointOnRoad(preferType) {
+  // 在随机道路上，随机 t 值取一点，再偏移 ±宽度
+  for (let tries = 0; tries < 30; tries++) {
+    const r = ROADS[Math.floor(Math.random() * ROADS.length)];
+    if (preferType && r.type !== preferType) continue;
+    const t = 0.1 + Math.random() * 0.8;  // 避开两端边界
+    const x = r.x1 + (r.x2 - r.x1) * t + (Math.random()-0.5) * r.w * 0.6;
+    const y = r.y1 + (r.y2 - r.y1) * t + (Math.random()-0.5) * r.w * 0.6;
+    if (x > 200 && x < WORLD.w-200 && y > 200 && y < WORLD.h-200) return { x, y };
+  }
+  // fallback：地图随机点
+  return { x: 200 + Math.random()*(WORLD.w-400), y: 200 + Math.random()*(WORLD.h-400) };
+}
 
 // ===== 车辆等级表（1~10 级）=====
 // [最大速度, 加速度, 转向速度]
@@ -459,6 +520,7 @@ class Car {
     this.aiTarget = null;    // AI 当前目标点
     this.aiTimer = 0;        // AI 决策计时
     this.aiSeekPlayer = false;
+    this.dropCooldown = 3;   // 拾取车包冷却（开局3秒内不拾取，避免瞬间换车）
   }
 
   // 获取当前等级配置
@@ -484,6 +546,8 @@ class Car {
     const maxF = st.maxSpeed, maxB = st.maxSpeed * 0.4;
     if (this.speed > maxF) this.speed = maxF;
     if (this.speed < -maxB) this.speed = -maxB;
+    // 拾取车包冷却递减
+    if (this.dropCooldown > 0) this.dropCooldown -= dt;
 
     // ===== 转向（受速度影响）=====
     let turn = 0;
@@ -664,35 +728,33 @@ function initGame() {
   // 创建玩家（Level 2，蓝色），出生在地图中央
   const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
 
-  // 创建 10 个 AI，等级 1~2 级随机（开局公平，谁也不会一上来就开高级车）
+  // 创建 15 个 AI，等级 1~2 级随机（开局公平，谁也不会一上来就开高级车）
+  // 出生位置沿公路随机分布（参考地平线淘汰之王：所有车从路上出发）
   const ais = [];
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     const lvl = Math.floor(Math.random() * 2) + 1;  // 1 或 2
-    const x = 200 + Math.random() * (WORLD.w - 400);
-    const y = 200 + Math.random() * (WORLD.h - 400);
-    const ai = new Car(x, y, AI_COLORS[i % AI_COLORS.length], lvl, false);
+    const p = randomPointOnRoad();
+    const ai = new Car(p.x, p.y, AI_COLORS[i % AI_COLORS.length], lvl, false);
     ai.angle = Math.random() * Math.PI * 2;
     ais.push(ai);
   }
 
-  // 安全区：圆心随机，初始半径 2000（地图放大到 6000 后给予合理初始范围）
+  // 安全区：圆心随机，初始半径 2500（地图 8000，半径占 ~1/3，给压力感）
   const zone = {
-    cx: WORLD.w / 2 + (Math.random() - 0.5) * 600,
-    cy: WORLD.h / 2 + (Math.random() - 0.5) * 600,
-    radius: 2000,
+    cx: WORLD.w / 2 + (Math.random() - 0.5) * 800,
+    cy: WORLD.h / 2 + (Math.random() - 0.5) * 800,
+    radius: 2500,
     shrinkTimer: 0,         // 缩圈计时
     shrinkInterval: 20,    // 每 20 秒缩一次
-    shrinkAmount: 150,      // 每次缩 150
-    minRadius: 300,
+    shrinkAmount: 180,      // 每次缩 180
+    minRadius: 350,
   };
 
-  // 车包列表：初始生成 10 个（地图变大，车包数量也增加）
+  // 车包列表：初始生成 12 个，全部沿公路分布（地平线淘汰之王风格）
   const drops = [];
-  for (let i = 0; i < 10; i++) {
-    drops.push(new CarDrop(
-      200 + Math.random() * (WORLD.w - 400),
-      200 + Math.random() * (WORLD.h - 400)
-    ));
+  for (let i = 0; i < 12; i++) {
+    const p = randomPointOnRoad();
+    drops.push(new CarDrop(p.x, p.y));
   }
 
   game = {
@@ -880,12 +942,10 @@ function update(dt) {
 
   // ===== 车包更新与拾取 =====
   game.dropTimer += dt;
-  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 6) {
+  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 8) {
     game.dropTimer = 0;
-    game.drops.push(new CarDrop(
-      200 + Math.random() * (WORLD.w - 400),
-      200 + Math.random() * (WORLD.h - 400)
-    ));
+    const p = randomPointOnRoad();
+    game.drops.push(new CarDrop(p.x, p.y));
   }
   for (const drop of game.drops) {
     if (drop.taken) continue;
@@ -893,12 +953,16 @@ function update(dt) {
     // 检测拾取
     for (const c of allCars) {
       if (!c.alive) continue;
+      // 拾取冷却中：跳过（避免开局瞬间换车）
+      if (c.dropCooldown > 0) continue;
       const d = Math.hypot(c.x - drop.x, c.y - drop.y);
       if (d < 30) {
         drop.taken = true;
         // 立即换一辆随机等级的新车（1~10）
         const newLevel = Math.floor(Math.random() * 10) + 1;
         c.level = newLevel;
+        // 拾取后再进入冷却，避免连续拾取
+        c.dropCooldown = 3;
         break;
       }
     }
@@ -1078,33 +1142,85 @@ function render() {
  * 绘制世界网格背景
  * ============================================================ */
 function drawWorld() {
-  // 视口范围
-  const halfW = canvas.width / 2, halfH = canvas.height / 2;
-  const x0 = Math.max(0, game.cam.x - halfW - TILE);
-  const y0 = Math.max(0, game.cam.y - halfH - TILE);
-  const x1 = Math.min(WORLD.w, game.cam.x + halfW + TILE);
-  const y1 = Math.min(WORLD.h, game.cam.y + halfH + TILE);
+  // 视口范围（含 zoom 反算：扩大视野裁剪范围以避免缩放后边缘裁剪）
+  const halfW = canvas.width / 2 / CAM_ZOOM + TILE;
+  const halfH = canvas.height / 2 / CAM_ZOOM + TILE;
+  const x0 = Math.max(0, game.cam.x - halfW);
+  const y0 = Math.max(0, game.cam.y - halfH);
+  const x1 = Math.min(WORLD.w, game.cam.x + halfW);
+  const y1 = Math.min(WORLD.h, game.cam.y + halfH);
 
-  // 深灰底
-  ctx.fillStyle = '#1a1a1a';
+  // 草地底色（暗绿）
+  ctx.fillStyle = '#1d2a1d';
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
 
-  // 网格线
-  ctx.strokeStyle = '#2a2a2a';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = Math.floor(x0 / TILE) * TILE; x <= x1; x += TILE) {
-    ctx.moveTo(x, y0); ctx.lineTo(x, y1);
+  // 草地纹理：稀疏点状（模拟草地颗粒）
+  ctx.fillStyle = 'rgba(60,80,60,0.4)';
+  for (let gx = Math.floor(x0/100)*100; gx <= x1; gx += 100) {
+    for (let gy = Math.floor(y0/100)*100; gy <= y1; gy += 100) {
+      // 用确定性伪随机（坐标 hash）保证不闪烁
+      const h = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
+      const px = gx + (h % 60) - 30;
+      const py = gy + ((h >> 8) % 60) - 30;
+      ctx.fillRect(px, py, 2, 2);
+    }
   }
-  for (let y = Math.floor(y0 / TILE) * TILE; y <= y1; y += TILE) {
-    ctx.moveTo(x0, y); ctx.lineTo(x1, y);
-  }
-  ctx.stroke();
+
+  // ===== 绘制公路系统 =====
+  drawRoads(x0, y0, x1, y1);
 
   // 边界墙
   ctx.strokeStyle = '#ff5252';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(2, 2, WORLD.w - 4, WORLD.h - 4);
+  ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
+}
+
+/* ============================================================
+ * 绘制所有道路：路基+路面+车道线
+ * ============================================================ */
+function drawRoads(x0, y0, x1, y1) {
+  for (const r of ROADS) {
+    const isHighway = r.type === 'highway';
+    // 路基（比路面宽一点，作为路肩）
+    ctx.strokeStyle = isHighway ? '#3a3a3a' : '#2e2e2e';
+    ctx.lineWidth = r.w + 8;
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2);
+    ctx.stroke();
+
+    // 路面（沥青黑灰）
+    ctx.strokeStyle = isHighway ? '#4a4a4a' : '#3a3a3a';
+    ctx.lineWidth = r.w;
+    ctx.beginPath();
+    ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2);
+    ctx.stroke();
+
+    // 中央双黄线（主干道）/ 单黄线（乡村路）
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = isHighway ? 3 : 2;
+    ctx.setLineDash(isHighway ? [20, 12] : [10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 路边白线
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1.5;
+    const dx = r.x2 - r.x1, dy = r.y2 - r.y1;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const nx = -dy / len, ny = dx / len;  // 法向量
+      const off = r.w / 2 - 2;
+      ctx.beginPath();
+      ctx.moveTo(r.x1 + nx*off, r.y1 + ny*off);
+      ctx.lineTo(r.x2 + nx*off, r.y2 + ny*off);
+      ctx.moveTo(r.x1 - nx*off, r.y1 - ny*off);
+      ctx.lineTo(r.x2 - nx*off, r.y2 - ny*off);
+      ctx.stroke();
+    }
+  }
 }
 
 /* ============================================================
