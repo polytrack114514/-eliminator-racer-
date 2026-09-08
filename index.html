@@ -231,9 +231,110 @@
     #touch-controls { display: block; }
     #hud-bottom { display: none; }
   }
+
+  /* ===== 主页面 ===== */
+  #menu {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at center, #1a2238 0%, #0a0a0a 70%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  #menu .title {
+    font-size: 56px; font-weight: 900;
+    background: linear-gradient(90deg, #ffd33d, #ff6b6b, #6cf, #ffd33d);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shine 3s linear infinite;
+    text-shadow: 0 0 40px rgba(255,210,60,0.5);
+    margin-bottom: 4px; letter-spacing: 2px;
+  }
+  @keyframes shine { to { background-position: 200% center; } }
+  #menu .subtitle {
+    font-size: 16px; color: #888; letter-spacing: 4px;
+    margin-bottom: 40px;
+  }
+  #menu .section-label {
+    color: #6cf; font-size: 14px; letter-spacing: 3px;
+    margin-bottom: 14px; text-transform: uppercase;
+  }
+  .diff-row {
+    display: flex; gap: 16px; margin-bottom: 36px;
+  }
+  .diff-btn {
+    width: 160px; padding: 18px 10px;
+    background: rgba(40,50,70,0.6);
+    border: 2px solid rgba(120,160,200,0.4);
+    border-radius: 10px; color: #fff;
+    cursor: pointer; transition: all 0.2s;
+    text-align: center;
+  }
+  .diff-btn:hover {
+    border-color: #6cf; background: rgba(60,80,120,0.8);
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(80,180,255,0.3);
+  }
+  .diff-btn.selected {
+    border-color: #ffd33d; background: rgba(80,60,30,0.8);
+    box-shadow: 0 0 25px rgba(255,210,60,0.5);
+  }
+  .diff-btn .name { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+  .diff-btn .desc { font-size: 11px; color: #aaa; line-height: 1.4; }
+  .diff-btn.easy .name { color: #6f6; }
+  .diff-btn.normal .name { color: #ffd33d; }
+  .diff-btn.hard .name { color: #ff6b6b; }
+
+  #start-btn {
+    padding: 16px 60px; font-size: 22px; font-weight: bold;
+    background: linear-gradient(90deg, #ffd33d, #ff8c00);
+    color: #1a1a1a; border: none; border-radius: 30px;
+    cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 6px 20px rgba(255,180,0,0.4);
+    letter-spacing: 2px;
+  }
+  #start-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(255,180,0,0.6); }
+  #menu .tips {
+    margin-top: 28px; font-size: 12px; color: #555;
+    text-align: center; line-height: 1.6;
+  }
+  #menu .tips kbd {
+    background: #333; color: #fff; padding: 1px 5px;
+    border-radius: 3px; border: 1px solid #555; font-family: monospace;
+  }
 </style>
 </head>
 <body>
+  <!-- ===== 主页面 ===== -->
+  <div id="menu">
+    <div class="title">赛车淘汰之王</div>
+    <div class="subtitle">THE  ELIMINATOR  ·  2D</div>
+
+    <div class="section-label">选择难度</div>
+    <div class="diff-row">
+      <div class="diff-btn easy" data-diff="easy">
+        <div class="name">简单</div>
+        <div class="desc">AI 较少且迟钝<br>缩圈缓慢</div>
+      </div>
+      <div class="diff-btn normal selected" data-diff="normal">
+        <div class="name">普通</div>
+        <div class="desc">AI 数量与速度均衡<br>标准缩圈</div>
+      </div>
+      <div class="diff-btn hard" data-diff="hard">
+        <div class="name">困难</div>
+        <div class="desc">AI 多且凶猛<br>缩圈迅猛</div>
+      </div>
+    </div>
+
+    <button id="start-btn">开 始 游 戏</button>
+
+    <div class="tips">
+      <kbd>W A S D</kbd> 移动 &nbsp; <kbd>SPACE</kbd> 触发 1v1 &nbsp; 停车 2 秒 <kbd>隐身</kbd><br>
+      拾取紫色车包换高级车 · 击败对手夺取车辆 · 最后存活者获胜
+    </div>
+  </div>
+
   <!-- 主游戏画布 -->
   <canvas id="game"></canvas>
 
@@ -295,7 +396,10 @@
   <div id="end-screen">
     <h1 id="end-title">GAME OVER</h1>
     <p id="end-desc">你被淘汰了</p>
-    <button id="restart-btn">重新开始</button>
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button id="restart-btn">重新开始</button>
+      <button id="back-menu-btn" style="padding:12px 24px;font-size:16px;font-weight:bold;background:#444;color:#fff;border:1px solid #888;border-radius:6px;cursor:pointer;">返回主菜单</button>
+    </div>
   </div>
 
 <script>
@@ -311,8 +415,8 @@ const miniCanvas = document.getElementById('minimap');
 const miniCtx = miniCanvas.getContext('2d');
 
 // ===== 世界常量 =====
-const WORLD = { w: 8000, h: 8000 };   // 地图尺寸 8000x8000（大世界，车辆不挤）
-const CAM_ZOOM = 0.55;                  // 摄像机缩放：视野更广，世界感更强
+const WORLD = { w: 10000, h: 10000 }; // 地图尺寸 10000x10000（超大世界）
+const CAM_ZOOM = 0.5;                   // 摄像机缩放：视野更广，世界感更强
 const TILE = 80;                       // 网格单元尺寸
 
 /* ============================================================
@@ -323,24 +427,22 @@ const TILE = 80;                       // 网格单元尺寸
 const ROADS = (() => {
   const list = [];
   // === 主干道（高速公路）：横纵两条穿越整张地图 ===
-  // 横向主干（在地图中央 y=4000）
-  list.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 100, type: 'highway' });
-  // 纵向主干（在地图中央 x=4000）
-  list.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 100, type: 'highway' });
-  // 对角线高速（增加变化感）
-  list.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 70, type: 'highway' });
-  list.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 70, type: 'highway' });
+  // 横向主干
+  list.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 120, type: 'highway' });
+  // 纵向主干
+  list.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 120, type: 'highway' });
+  // 对角线高速
+  list.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 80, type: 'highway' });
+  list.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 80, type: 'highway' });
 
-  // === 乡村路（次干道）：网格状 ===
-  // 横向乡村路：每 1000 像素一条
-  for (let y = 1000; y < WORLD.h; y += 1000) {
-    if (Math.abs(y - WORLD.h/2) < 50) continue;  // 跳过与主干重合
-    list.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 50, type: 'local' });
+  // === 乡村路（次干道）：网格状，每 1250 像素一条 ===
+  for (let y = 1250; y < WORLD.h; y += 1250) {
+    if (Math.abs(y - WORLD.h/2) < 60) continue;
+    list.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 55, type: 'local' });
   }
-  // 纵向乡村路
-  for (let x = 1000; x < WORLD.w; x += 1000) {
-    if (Math.abs(x - WORLD.w/2) < 50) continue;
-    list.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 50, type: 'local' });
+  for (let x = 1250; x < WORLD.w; x += 1250) {
+    if (Math.abs(x - WORLD.w/2) < 60) continue;
+    list.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 55, type: 'local' });
   }
   return list;
 })();
@@ -362,18 +464,112 @@ function pointOnRoad(x, y) {
 }
 
 // 在公路沿线随机生成一点（车包/检查点/出生位置用）
-function randomPointOnRoad(preferType) {
+// 可选参数 zone：若传入，则生成的点必须同时位于该安全区内
+function randomPointOnRoad(preferType, zone) {
   // 在随机道路上，随机 t 值取一点，再偏移 ±宽度
-  for (let tries = 0; tries < 30; tries++) {
+  for (let tries = 0; tries < 50; tries++) {
     const r = ROADS[Math.floor(Math.random() * ROADS.length)];
     if (preferType && r.type !== preferType) continue;
     const t = 0.1 + Math.random() * 0.8;  // 避开两端边界
     const x = r.x1 + (r.x2 - r.x1) * t + (Math.random()-0.5) * r.w * 0.6;
     const y = r.y1 + (r.y2 - r.y1) * t + (Math.random()-0.5) * r.w * 0.6;
-    if (x > 200 && x < WORLD.w-200 && y > 200 && y < WORLD.h-200) return { x, y };
+    if (x < 200 || x > WORLD.w-200 || y < 200 || y > WORLD.h-200) continue;
+    // 若指定安全区，要求点必须落在圈内
+    if (zone) {
+      const dz = Math.hypot(x - zone.cx, y - zone.cy);
+      if (dz > zone.radius * 0.85) continue;
+    }
+    // 不能压在房屋上
+    if (isBlockedByHouse(x, y)) continue;
+    return { x, y };
   }
   // fallback：地图随机点
   return { x: 200 + Math.random()*(WORLD.w-400), y: 200 + Math.random()*(WORLD.h-400) };
+}
+
+/* ============================================================
+ * 房屋障碍物（车辆碰撞会阻挡，不可穿越）
+ * 生成在公路交叉口之间的空地上
+ * ============================================================ */
+const HOUSES = (() => {
+  const list = [];
+  // 沿网格生成房屋，避开公路与边界
+  const step = 625;  // 半个乡村路间距
+  for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
+    for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
+      // 每格 70% 概率建一栋房
+      if (Math.random() < 0.7) {
+        // 房屋大小随机
+        const w = 90 + Math.random() * 80;
+        const h = 90 + Math.random() * 80;
+        // 在格内随机偏移（避开路边）
+        const ox = (Math.random() - 0.5) * 100;
+        const oy = (Math.random() - 0.5) * 100;
+        const cx = gx + ox, cy = gy + oy;
+        // 跳过压在主干道上的房屋
+        if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
+        // 跳过压在对角线高速上的
+        if (Math.abs(cy - cx) < 90 || Math.abs(cy - (WORLD.w - cx)) < 90) continue;
+        list.push({
+          x: cx - w/2, y: cy - h/2, w, h,
+          color: ['#5b4636','#6b5b4a','#7a6b5a','#4a3b2c','#8a7a6a'][Math.floor(Math.random()*5)],
+        });
+      }
+    }
+  }
+  return list;
+})();
+
+// 判断一个点是否被房屋占据
+function isBlockedByHouse(x, y) {
+  for (const h of HOUSES) {
+    if (x > h.x - 30 && x < h.x + h.w + 30 &&
+        y > h.y - 30 && y < h.y + h.h + 30) return true;
+  }
+  return false;
+}
+
+// 判断圆是否与房屋相交（车辆碰撞用）
+function circleHitsHouse(x, y, r) {
+  for (const h of HOUSES) {
+    // 圆-矩形碰撞
+    const cx = Math.max(h.x, Math.min(x, h.x + h.w));
+    const cy = Math.max(h.y, Math.min(y, h.y + h.h));
+    if (Math.hypot(x - cx, y - cy) < r) return h;
+  }
+  return null;
+}
+
+/* ============================================================
+ * 水坑（车辆驶入减速）
+ * 生成在路面与草地上，圆形深色区域
+ * ============================================================ */
+const PUDDLES = (() => {
+  const list = [];
+  for (let i = 0; i < 30; i++) {
+    // 50% 概率在路上，50% 在草地
+    let x, y;
+    if (Math.random() < 0.5) {
+      const p = randomPointOnRoad();
+      x = p.x; y = p.y;
+    } else {
+      x = 200 + Math.random() * (WORLD.w - 400);
+      y = 200 + Math.random() * (WORLD.h - 400);
+    }
+    list.push({
+      x, y,
+      r: 50 + Math.random() * 50,
+    });
+  }
+  return list;
+})();
+
+// 判断点是否在水坑内（减速用）
+function pointInPuddle(x, y) {
+  for (const p of PUDDLES) {
+    if (Math.hypot(x - p.x, y - p.y) < p.r) return true;
+  }
+  return false;
 }
 
 // ===== 车辆等级表（1~10 级）=====
@@ -393,7 +589,19 @@ const CAR_LEVELS = {
 
 // ===== AI 颜色池 =====
 const AI_COLORS = ['#ff5252', '#ff9800', '#ab47bc', '#66bb6a', '#ec407a',
-                   '#7e57c2', '#26a69a', '#ffa726', '#ef5350', '#5c6bc0'];
+                   '#7e57c2', '#26a69a', '#ffa726', '#ef5350', '#5c6bc0',
+                   '#ec407a', '#26c6da', '#9ccc65', '#ba68c8', '#ff8a65'];
+
+/* ============================================================
+ * 难度配置（简单/普通/困难）
+ * 影响：AI 数量、AI 追玩家概率、AI 转向修正、缩圈频率与幅度
+ * ============================================================ */
+const DIFFICULTY = {
+  easy:   { aiCount: 8,  aiSeekPlayerChance: 0.15, aiTurnMul: 0.85, shrinkInterval: 25, shrinkAmount: 160, dropAmount: 0.7 },
+  normal: { aiCount: 15, aiSeekPlayerChance: 0.35, aiTurnMul: 1.0,  shrinkInterval: 20, shrinkAmount: 220, dropAmount: 1.0 },
+  hard:   { aiCount: 22, aiSeekPlayerChance: 0.55, aiTurnMul: 1.25, shrinkInterval: 15, shrinkAmount: 280, dropAmount: 1.3 },
+};
+let currentDifficulty = 'normal';
 
 // ===== 游戏状态 =====
 let game; // 全局游戏状态对象
@@ -560,10 +768,29 @@ class Car {
     }
 
     // ===== 位置更新 =====
-    const vx = Math.cos(this.angle) * this.speed;
-    const vy = Math.sin(this.angle) * this.speed;
+    // 水坑减速：驶入水坑后速度上限降低（持续效果）
+    let speedMul = 1;
+    if (pointInPuddle(this.x, this.y)) {
+      speedMul = 0.45;  // 水坑里只能达到 45% 速度
+      // 同时已积累速度强制衰减
+      this.speed *= 0.97;
+    }
+    const vx = Math.cos(this.angle) * this.speed * speedMul;
+    const vy = Math.sin(this.angle) * this.speed * speedMul;
+    const oldX = this.x, oldY = this.y;
     this.x += vx * dt;
     this.y += vy * dt;
+
+    // ===== 房屋碰撞阻挡（不可穿越，沿原方向反弹） =====
+    const hitHouse = circleHitsHouse(this.x, this.y, 18);
+    if (hitHouse) {
+      // 回退到碰撞前位置，并损失部分速度
+      this.x = oldX; this.y = oldY;
+      this.speed *= 0.3;
+      // 沿垂直方向小幅推开（避免卡死）
+      this.x += -Math.sin(this.angle) * 2;
+      this.y +=  Math.cos(this.angle) * 2;
+    }
 
     // ===== 边界墙碰撞反弹 =====
     const margin = 20;
@@ -725,13 +952,16 @@ class CarDrop {
  * 游戏初始化
  * ============================================================ */
 function initGame() {
+  // 读取难度配置
+  const diff = DIFFICULTY[currentDifficulty];
+
   // 创建玩家（Level 2，蓝色），出生在地图中央
   const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
 
-  // 创建 15 个 AI，等级 1~2 级随机（开局公平，谁也不会一上来就开高级车）
+  // 创建 AI（数量由难度决定），等级 1~2 级随机（开局公平）
   // 出生位置沿公路随机分布（参考地平线淘汰之王：所有车从路上出发）
   const ais = [];
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < diff.aiCount; i++) {
     const lvl = Math.floor(Math.random() * 2) + 1;  // 1 或 2
     const p = randomPointOnRoad();
     const ai = new Car(p.x, p.y, AI_COLORS[i % AI_COLORS.length], lvl, false);
@@ -739,21 +969,22 @@ function initGame() {
     ais.push(ai);
   }
 
-  // 安全区：圆心随机，初始半径 2500（地图 8000，半径占 ~1/3，给压力感）
+  // 安全区：圆心随机，初始半径 3000（地图 10000，半径占 ~30%，给压力感）
+  // 缩圈间隔与幅度由难度决定
   const zone = {
-    cx: WORLD.w / 2 + (Math.random() - 0.5) * 800,
-    cy: WORLD.h / 2 + (Math.random() - 0.5) * 800,
-    radius: 2500,
+    cx: WORLD.w / 2 + (Math.random() - 0.5) * 1000,
+    cy: WORLD.h / 2 + (Math.random() - 0.5) * 1000,
+    radius: 3000,
     shrinkTimer: 0,         // 缩圈计时
-    shrinkInterval: 20,    // 每 20 秒缩一次
-    shrinkAmount: 180,      // 每次缩 180
-    minRadius: 350,
+    shrinkInterval: diff.shrinkInterval,    // 缩圈间隔（秒）
+    shrinkAmount: diff.shrinkAmount,        // 每次缩多少
+    minRadius: 400,
   };
 
-  // 车包列表：初始生成 12 个，全部沿公路分布（地平线淘汰之王风格）
+  // 车包列表：初始生成 15 个，全部沿公路分布且在初始安全区内
   const drops = [];
-  for (let i = 0; i < 12; i++) {
-    const p = randomPointOnRoad();
+  for (let i = 0; i < 15; i++) {
+    const p = randomPointOnRoad(null, zone);
     drops.push(new CarDrop(p.x, p.y));
   }
 
@@ -942,9 +1173,10 @@ function update(dt) {
 
   // ===== 车包更新与拾取 =====
   game.dropTimer += dt;
-  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 8) {
+  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 10) {
     game.dropTimer = 0;
-    const p = randomPointOnRoad();
+    // 后续生成的车包必须落在"当前"安全区内（修复后期车包出现在毒区的问题）
+    const p = randomPointOnRoad(null, game.zone);
     game.drops.push(new CarDrop(p.x, p.y));
   }
   for (const drop of game.drops) {
@@ -1035,8 +1267,9 @@ function updateAI(ai, dt) {
       if (dist < nd) { nd = dist; nearestDrop = d; }
     }
 
-    // 概率：靠近玩家（仅当玩家未隐身）
-    if (!game.player.stealth && game.player.alive && Math.random() < 0.35) {
+    // 概率：靠近玩家（仅当玩家未隐身），概率由难度决定
+    const seekChance = DIFFICULTY[currentDifficulty].aiSeekPlayerChance;
+    if (!game.player.stealth && game.player.alive && Math.random() < seekChance) {
       ai.aiSeekPlayer = true;
       ai.aiTarget = { x: game.player.x, y: game.player.y };
     } else if (nearestDrop) {
@@ -1075,7 +1308,8 @@ function steerTowards(ai, tx, ty, dt) {
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   // 转向
-  const turnRate = ai.stats.turn * 1.2;
+  // 转向倍数由难度决定（困难时 AI 转向更激进）
+  const turnRate = ai.stats.turn * 1.2 * DIFFICULTY[currentDifficulty].aiTurnMul;
   if (Math.abs(diff) > 0.1) {
     ai.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
     ai._turn = Math.sign(diff);
@@ -1169,10 +1403,73 @@ function drawWorld() {
   // ===== 绘制公路系统 =====
   drawRoads(x0, y0, x1, y1);
 
+  // ===== 绘制水坑 =====
+  drawPuddles(x0, y0, x1, y1);
+
+  // ===== 绘制房屋 =====
+  drawHouses(x0, y0, x1, y1);
+
   // 边界墙
   ctx.strokeStyle = '#ff5252';
   ctx.lineWidth = 6;
   ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
+}
+
+/* ============================================================
+ * 绘制房屋（带屋顶+窗户细节）
+ * ============================================================ */
+function drawHouses(x0, y0, x1, y1) {
+  for (const h of HOUSES) {
+    // 视口剔除
+    if (h.x + h.w < x0 || h.x > x1 || h.y + h.h < y0 || h.y > y1) continue;
+    // 阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(h.x + 4, h.y + 4, h.w, h.h);
+    // 主体
+    ctx.fillStyle = h.color;
+    ctx.fillRect(h.x, h.y, h.w, h.h);
+    // 屋顶（深色三角形屋顶，简化为顶部色块）
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.25));
+    // 窗户（两个小亮色方块）
+    ctx.fillStyle = 'rgba(255,230,150,0.6)';
+    const ww = 8, wh = 8;
+    ctx.fillRect(h.x + 10, h.y + h.h/2 - 4, ww, wh);
+    ctx.fillRect(h.x + h.w - 18, h.y + h.h/2 - 4, ww, wh);
+    // 描边
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(h.x, h.y, h.w, h.h);
+  }
+}
+
+/* ============================================================
+ * 绘制水坑（半透明深蓝，带波纹）
+ * ============================================================ */
+function drawPuddles(x0, y0, x1, y1) {
+  const t = performance.now() / 1000;
+  for (const p of PUDDLES) {
+    if (p.x + p.r < x0 || p.x - p.r > x1 || p.y + p.r < y0 || p.y - p.r > y1) continue;
+    // 主水坑
+    ctx.fillStyle = 'rgba(40,60,90,0.55)';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    // 波纹（动态）
+    for (let i = 0; i < 2; i++) {
+      const r = (t * 15 + i * 15) % p.r;
+      ctx.strokeStyle = `rgba(150,200,255,${0.3 * (1 - r/p.r)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // 高光
+    ctx.fillStyle = 'rgba(200,230,255,0.25)';
+    ctx.beginPath();
+    ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 /* ============================================================
@@ -1383,16 +1680,8 @@ function drawMinimap() {
 }
 
 /* ============================================================
- * 主循环
+ * 主循环（实际定义见文件末尾，与主页面状态联动）
  * ============================================================ */
-let lastTime = performance.now();
-function loop(now) {
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
-  lastTime = now;
-  if (game && !game.over) update(dt);
-  if (game) render();
-  requestAnimationFrame(loop);
-}
 
 /* ============================================================
  * 1v1 胜利选择按钮
@@ -1464,9 +1753,53 @@ function endHeadToHead(playerWon) {
 }
 
 /* ============================================================
- * 启动游戏
+ * 主页面交互
  * ============================================================ */
-initGame();
+let menuMode = true;  // 是否在主页面（true 时不更新游戏，只渲染菜单背景）
+
+// 难度选择按钮
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    currentDifficulty = btn.dataset.diff;
+  });
+});
+
+// 开始游戏按钮
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('menu').style.display = 'none';
+  menuMode = false;
+  initGame();
+});
+
+// 重新开始按钮（结束画面）：直接重开当前难度（保留原监听器行为）
+// 这里不重复绑定，原监听器已实现 initGame() 重置
+
+// 返回主菜单按钮：让用户重选难度
+document.getElementById('back-menu-btn').addEventListener('click', () => {
+  document.getElementById('end-screen').style.display = 'none';
+  document.getElementById('choice-panel').style.display = 'none';
+  document.getElementById('h2h-banner').style.display = 'none';
+  document.getElementById('final-banner').style.display = 'none';
+  document.getElementById('menu').style.display = 'flex';
+  menuMode = true;
+  game = null;
+});
+
+/* ============================================================
+ * 主循环：菜单模式下不更新游戏逻辑
+ * ============================================================ */
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  if (game && !game.over && !menuMode) update(dt);
+  if (game) render();
+  requestAnimationFrame(loop);
+}
+
+// 初始不创建游戏，等待用户从主页面开始
 requestAnimationFrame(loop);
 </script>
 </body>
