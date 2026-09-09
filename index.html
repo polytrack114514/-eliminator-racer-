@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>赛车淘汰之王 · The Eliminator 2D</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #0a0a0a; color: #fff;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+  #game {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1a1a1a; display: block;
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    image-rendering: pixelated;
+  }
+  #hud-left {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 14px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    min-width: 220px; pointer-events: none;
+  }
+  .hp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .hp-label { font-size: 13px; color: #ff6b6b; font-weight: bold; width: 28px; }
+  .hp-bar-bg { flex: 1; height: 16px; background: #2a0a0a; border: 1px solid #4a1a1a; border-radius: 3px; overflow: hidden; }
+  #hp-fill { height: 100%; background: linear-gradient(90deg, #ff3030, #ff6b6b); transition: width 0.15s linear; }
+  .stat-row { display: flex; justify-content: space-between; font-size: 13px; color: #ddd; margin-top: 3px; }
+  .stat-row .val { color: #ffd33d; font-weight: bold; }
+  #car-level-name { color: #6cf; }
+  #hud-top {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.55); padding: 8px 18px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15); text-align: center; pointer-events: none;
+  }
+  #alive-count { font-size: 26px; font-weight: bold; color: #fff; }
+  #alive-label { font-size: 11px; color: #999; letter-spacing: 1px; }
+  #minimap-wrap {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; padding: 4px; pointer-events: none;
+  }
+  #minimap { display: block; background: #111; }
+  #hud-bottom {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.5); padding: 6px 16px; border-radius: 6px;
+    font-size: 12px; color: #bbb; pointer-events: none; letter-spacing: 0.5px;
+  }
+  #hud-bottom kbd { background: #333; color: #fff; padding: 1px 5px; border-radius: 3px; border: 1px solid #555; font-family: monospace; }
+  #countdown {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 120px; font-weight: bold; color: #ffd33d;
+    text-shadow: 0 0 30px rgba(255,210,60,0.9), 0 4px 8px #000;
+    pointer-events: none; display: none; animation: cdpop 0.7s ease-out;
+  }
+  @keyframes cdpop { 0%{transform:translate(-50%,-50%) scale(2);opacity:0;} 30%{opacity:1;} 100%{transform:translate(-50%,-50%) scale(1);opacity:1;} }
+  #h2h-banner {
+    position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+    background: rgba(255,40,40,0.85); padding: 6px 20px; border-radius: 4px;
+    font-size: 16px; font-weight: bold; color: #fff; display: none; pointer-events: none;
+    border: 1px solid #ff8080; text-shadow: 0 1px 2px #000;
+  }
+  #choice-panel {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85); border: 2px solid #ffd33d; border-radius: 12px;
+    padding: 24px 30px; display: none; text-align: center; box-shadow: 0 0 40px rgba(255,210,60,0.4);
+  }
+  #choice-panel h2 { color: #ffd33d; margin-bottom: 6px; font-size: 22px; }
+  #choice-panel p { color: #ccc; font-size: 13px; margin-bottom: 18px; }
+  .choice-btn { display: block; width: 280px; margin: 8px auto; padding: 12px; font-size: 15px; font-weight: bold; border: 2px solid #6cf; background: rgba(40,80,120,0.6); color: #fff; border-radius: 8px; cursor: pointer; transition: all 0.15s; }
+  .choice-btn:hover { background: rgba(60,120,180,0.8); transform: translateY(-1px); }
+  .choice-btn.b { border-color: #6f6; background: rgba(40,100,60,0.6); }
+  .choice-btn.b:hover { background: rgba(60,140,80,0.8); }
+  #end-screen {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.9); border: 2px solid #ff3030; border-radius: 12px;
+    padding: 30px 50px; display: none; text-align: center; box-shadow: 0 0 50px rgba(255,40,40,0.5);
+  }
+  #end-screen.win { border-color: #ffd33d; box-shadow: 0 0 50px rgba(255,210,60,0.6); }
+  #end-screen h1 { font-size: 36px; margin-bottom: 10px; }
+  #end-screen.lose h1 { color: #ff3030; }
+  #end-screen.win h1 { color: #ffd33d; text-shadow: 0 0 20px rgba(255,210,60,0.8); }
+  #end-screen p { color: #ccc; margin-bottom: 18px; font-size: 14px; }
+  #restart-btn { padding: 12px 32px; font-size: 16px; font-weight: bold; background: #ffd33d; color: #000; border: none; border-radius: 6px; cursor: pointer; }
+  #restart-btn:hover { background: #ffe066; }
+  #final-banner {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 48px; font-weight: bold; color: #ffd33d;
+    text-shadow: 0 0 30px rgba(255,210,60,0.9), 0 4px 8px #000;
+    display: none; pointer-events: none; text-align: center; animation: cdpop 0.7s ease-out;
+  }
+  #stealth-indicator {
+    position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+    background: rgba(100,100,255,0.7); padding: 4px 14px; border-radius: 4px;
+    font-size: 12px; color: #fff; display: none; pointer-events: none;
+  }
+  #touch-controls { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
+  #joystick-base { position: absolute; bottom: 30px; left: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); pointer-events: auto; touch-action: none; }
+  #joystick-stick { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; border-radius: 50%; background: rgba(80,180,255,0.7); border: 2px solid rgba(255,255,255,0.6); pointer-events: none; }
+  .touch-btn { position: absolute; border-radius: 50%; pointer-events: auto; touch-action: none; color: #fff; font-weight: bold; font-size: 13px; border: 2px solid rgba(255,255,255,0.5); display: flex; align-items: center; justify-content: center; user-select: none; }
+  #btn-gas { bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(60,160,80,0.6); }
+  #btn-brake { bottom: 140px; right: 30px; width: 60px; height: 60px; background: rgba(200,60,60,0.6); font-size: 18px; }
+  #btn-h2h { bottom: 30px; left: 50%; transform: translateX(-50%); width: 80px; height: 50px; border-radius: 25px; background: rgba(255,80,80,0.7); font-size: 12px; }
+  @media (hover: hover) and (pointer: fine) { #touch-controls { display: none !important; } }
+  @media (hover: none) and (pointer: coarse) { #touch-controls { display: block; } #hud-bottom { display: none; } }
+  #menu {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at center, #1a2238 0%, #0a0a0a 70%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+  }
+  #menu .title { font-size: 56px; font-weight: 900; background: linear-gradient(90deg, #ffd33d, #ff6b6b, #6cf, #ffd33d); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shine 3s linear infinite; text-shadow: 0 0 40px rgba(255,210,60,0.5); margin-bottom: 4px; letter-spacing: 2px; }
+  @keyframes shine { to { background-position: 200% center; } }
+  #menu .subtitle { font-size: 16px; color: #888; letter-spacing: 4px; margin-bottom: 40px; }
+  #menu .section-label { color: #6cf; font-size: 14px; letter-spacing: 3px; margin-bottom: 14px; text-transform: uppercase; }
+  .diff-row { display: flex; gap: 16px; margin-bottom: 36px; }
+  .diff-btn { width: 160px; padding: 18px 10px; background: rgba(40,50,70,0.6); border: 2px solid rgba(120,160,200,0.4); border-radius: 10px; color: #fff; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .diff-btn:hover { border-color: #6cf; background: rgba(60,80,120,0.8); transform: translateY(-3px); box-shadow: 0 6px 20px rgba(80,180,255,0.3); }
+  .diff-btn.selected { border-color: #ffd33d; background: rgba(80,60,30,0.8); box-shadow: 0 0 25px rgba(255,210,60,0.5); }
+  .diff-btn .name { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+  .diff-btn .desc { font-size: 11px; color: #aaa; line-height: 1.4; }
+  .diff-btn.easy .name { color: #6f6; }
+  .diff-btn.normal .name { color: #ffd33d; }
+  .diff-btn.hard .name { color: #ff6b6b; }
+  #start-btn { padding: 16px 60px; font-size: 22px; font-weight: bold; background: linear-gradient(90deg, #ffd33d, #ff8c00); color: #1a1a1a; border: none; border-radius: 30px; cursor: pointer; transition: all 0.2s; box-shadow: 0 6px 20px rgba(255,180,0,0.4); letter-spacing: 2px; }
+  #start-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(255,180,0,0.6); }
+  #menu .tips { margin-top: 28px; font-size: 12px; color: #555; text-align: center; line-height: 1.6; }
+  #menu .tips kbd { background: #333; color: #fff; padding: 1px 5px; border-radius: 3px; border: 1px solid #555; font-family: monospace; }
+</style>
+</head>
+<body>
+  <div id="menu">
+    <div class="title">赛车淘汰之王</div>
+    <div class="subtitle">THE  ELIMINATOR  ·  2D</div>
+    <div class="section-label">选择难度</div>
+    <div class="diff-row">
+      <div class="diff-btn easy" data-diff="easy"><div class="name">简单</div><div class="desc">AI 较少且迟钝<br>缩圈缓慢</div></div>
+      <div class="diff-btn normal selected" data-diff="normal"><div class="name">普通</div><div class="desc">AI 数量与速度均衡<br>标准缩圈</div></div>
+      <div class="diff-btn hard" data-diff="hard"><div class="name">困难</div><div class="desc">AI 多且凶猛<br>缩圈迅猛</div></div>
+    </div>
+    <button id="start-btn">开 始 游 戏</button>
+    <div class="tips">
+      <kbd>W A S D</kbd> 移动 &nbsp; <kbd>SPACE</kbd> 触发 1v1 &nbsp; 停车 2 秒 <kbd>隐身</kbd><br>
+      拾取紫色车包换高级车 · 击败对手夺取车辆 · 最后存活者获胜
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <div id="hud-left">
+    <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar-bg"><div id="hp-fill" style="width:100%"></div></div></div>
+    <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2</span></div>
+    <div class="stat-row"><span>当前速度</span><span class="val" id="speed-val">0</span></div>
+  </div>
+
+  <div id="hud-top"><div id="alive-count">11</div><div id="alive-label">ALIVE</div></div>
+  <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
+  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 停车2秒 <kbd>隐身</kbd></div>
+  <div id="countdown"></div>
+
+  <div id="touch-controls">
+    <div id="joystick-base"><div id="joystick-stick"></div></div>
+    <div class="touch-btn" id="btn-brake">⬇</div>
+    <div class="touch-btn" id="btn-gas">GO</div>
+    <div class="touch-btn" id="btn-h2h">1v1</div>
+  </div>
+
+  <div id="h2h-banner">1v1 对决！冲向金色检查点！</div>
+  <div id="final-banner">决赛圈！冲向中心终点！</div>
+  <div id="stealth-indicator">隐身中 — AI 无法发现你</div>
+
+  <div id="choice-panel">
+    <h2>1v1 胜利！</h2>
+    <p id="choice-desc"></p>
+    <button class="choice-btn" id="choice-steal">夺取对方车辆</button>
+    <button class="choice-btn b" id="choice-upgrade">当前车辆升1级</button>
+  </div>
+
+  <div id="end-screen">
+    <h1 id="end-title">GAME OVER</h1>
+    <p id="end-desc">你被淘汰了</p>
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button id="restart-btn">重新开始</button>
+      <button id="back-menu-btn" style="padding:12px 24px;font-size:16px;font-weight:bold;background:#444;color:#fff;border:1px solid #888;border-radius:6px;cursor:pointer;">返回主菜单</button>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const miniCanvas = document.getElementById('minimap');
+const miniCtx = miniCanvas.getContext('2d');
+
+const WORLD = { w: 10000, h: 10000 };
+const CAM_ZOOM = 0.5;
+const TILE = 80;
+
+const ROADS = (() => {
+  const list = [];
+  list.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 120, type: 'highway' });
+  list.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 120, type: 'highway' });
+  list.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 80, type: 'highway' });
+  list.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 80, type: 'highway' });
+  for (let y = 1250; y < WORLD.h; y += 1250) {
+    if (Math.abs(y - WORLD.h/2) < 60) continue;
+    list.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 55, type: 'local' });
+  }
+  for (let x = 1250; x < WORLD.w; x += 1250) {
+    if (Math.abs(x - WORLD.w/2) < 60) continue;
+    list.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 55, type: 'local' });
+  }
+  return list;
+})();
+
+function pointOnRoad(x, y) {
+  for (const r of ROADS) {
+    const dx = r.x2 - r.x1, dy = r.y2 - r.y1;
+    const len2 = dx*dx + dy*dy;
+    if (len2 === 0) continue;
+    let t = ((x - r.x1)*dx + (y - r.y1)*dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const px = r.x1 + t*dx, py = r.y1 + t*dy;
+    if (Math.hypot(x - px, y - py) < r.w/2) return r.type;
+  }
+  return null;
+}
+
+function randomPointOnRoad(preferType, zone) {
+  for (let tries = 0; tries < 50; tries++) {
+    const r = ROADS[Math.floor(Math.random() * ROADS.length)];
+    if (preferType && r.type !== preferType) continue;
+    const t = 0.1 + Math.random() * 0.8;
+    const x = r.x1 + (r.x2 - r.x1) * t + (Math.random()-0.5) * r.w * 0.6;
+    const y = r.y1 + (r.y2 - r.y1) * t + (Math.random()-0.5) * r.w * 0.6;
+    if (x < 200 || x > WORLD.w-200 || y < 200 || y > WORLD.h-200) continue;
+    if (zone) {
+      const dz = Math.hypot(x - zone.cx, y - zone.cy);
+      if (dz > zone.radius * 0.85) continue;
+    }
+    if (isBlockedByHouse(x, y)) continue;
+    return { x, y };
+  }
+  return { x: 200 + Math.random()*(WORLD.w-400), y: 200 + Math.random()*(WORLD.h-400) };
+}
+
+const HOUSES = (() => {
+  const list = [];
+  const step = 625;
+  for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
+    for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
+      if (Math.random() < 0.7) {
+        const w = 90 + Math.random() * 80;
+        const h = 90 + Math.random() * 80;
+        const cx = gx + (Math.random() - 0.5) * 100;
+        const cy = gy + (Math.random() - 0.5) * 100;
+        if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
+        if (Math.abs(cy - cx) < 90 || Math.abs(cy - (WORLD.w - cx)) < 90) continue;
+        list.push({ x: cx - w/2, y: cy - h/2, w, h, color: ['#5b4636','#6b5b4a','#7a6b5a','#4a3b2c','#8a7a6a'][Math.floor(Math.random()*5)] });
+      }
+    }
+  }
+  return list;
+})();
+
+function isBlockedByHouse(x, y) {
+  for (const h of HOUSES) {
+    if (x > h.x - 30 && x < h.x + h.w + 30 && y > h.y - 30 && y < h.y + h.h + 30) return true;
+  }
+  return false;
+}
+
+function circleHitsHouse(x, y, r) {
+  for (const h of HOUSES) {
+    const cx = Math.max(h.x, Math.min(x, h.x + h.w));
+    const cy = Math.max(h.y, Math.min(y, h.y + h.h));
+    if (Math.hypot(x - cx, y - cy) < r) return h;
+  }
+  return null;
+}
+
+const PUDDLES = (() => {
+  const list = [];
+  for (let i = 0; i < 30; i++) {
+    let x, y;
+    if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
+    else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
+    list.push({ x, y, r: 50 + Math.random() * 50 });
+  }
+  return list;
+})();
+
+function pointInPuddle(x, y) {
+  for (const p of PUDDLES) { if (Math.hypot(x - p.x, y - p.y) < p.r) return true; }
+  return false;
+}
+
+const CAR_LEVELS = {
+  1:  { maxSpeed: 80,  accel: 40,  turn: 1.5, name: '老甲壳虫' },
+  2:  { maxSpeed: 100, accel: 50,  turn: 1.6, name: '家用轿车' },
+  3:  { maxSpeed: 120, accel: 60,  turn: 1.7, name: '城市小跑' },
+  4:  { maxSpeed: 140, accel: 70,  turn: 1.8, name: '运动轿车' },
+  5:  { maxSpeed: 160, accel: 80,  turn: 1.9, name: '小钢炮' },
+  6:  { maxSpeed: 180, accel: 90,  turn: 2.0, name: '肌肉车' },
+  7:  { maxSpeed: 200, accel: 100, turn: 2.1, name: '入门超跑' },
+  8:  { maxSpeed: 220, accel: 110, turn: 2.2, name: '中级超跑' },
+  9:  { maxSpeed: 240, accel: 120, turn: 2.3, name: '顶级超跑' },
+  10: { maxSpeed: 260, accel: 130, turn: 2.4, name: '顶级神车' },
+};
+
+const AI_COLORS = ['#ff5252', '#ff9800', '#ab47bc', '#66bb6a', '#ec407a', '#7e57c2', '#26a69a', '#ffa726', '#ef5350', '#5c6bc0', '#ec407a', '#26c6da', '#9ccc65', '#ba68c8', '#ff8a65'];
+
+const DIFFICULTY = {
+  easy:   { aiCount: 8,  aiSeekPlayerChance: 0.15, aiTurnMul: 0.85, shrinkInterval: 25, shrinkAmount: 160 },
+  normal: { aiCount: 15, aiSeekPlayerChance: 0.35, aiTurnMul: 1.0,  shrinkInterval: 20, shrinkAmount: 220 },
+  hard:   { aiCount: 22, aiSeekPlayerChance: 0.55, aiTurnMul: 1.25, shrinkInterval: 15, shrinkAmount: 280 },
+};
+let currentDifficulty = 'normal';
+let game;
+
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ') tryTriggerHeadToHead(); });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+const touch = { enabled: false, joystick: { x: 0, y: 0, active: false }, gas: false, brake: false };
+if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+  touch.enabled = true;
+  document.getElementById('touch-controls').style.display = 'block';
+}
+
+(function setupJoystick() {
+  const base = document.getElementById('joystick-base');
+  const stick = document.getElementById('joystick-stick');
+  if (!base || !stick) return;
+  let baseRect = null, touchId = null;
+  function start(e) { e.preventDefault(); baseRect = base.getBoundingClientRect(); touchId = e.changedTouches[0].identifier; move(e); touch.joystick.active = true; }
+  function move(e) {
+    if (touchId === null) return;
+    let t = null;
+    for (const ct of e.changedTouches) if (ct.identifier === touchId) { t = ct; break; }
+    if (!t) return;
+    const cx = baseRect.left + baseRect.width / 2, cy = baseRect.top + baseRect.height / 2;
+    let dx = t.clientX - cx, dy = t.clientY - cy;
+    const maxR = baseRect.width / 2, dist = Math.hypot(dx, dy);
+    if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
+    stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    touch.joystick.x = dx / maxR; touch.joystick.y = dy / maxR;
+  }
+  function end(e) {
+    let ended = false;
+    for (const ct of e.changedTouches) if (ct.identifier === touchId) { ended = true; break; }
+    if (!ended) return;
+    touchId = null; touch.joystick.active = false; touch.joystick.x = 0; touch.joystick.y = 0;
+    stick.style.transform = 'translate(-50%, -50%)';
+  }
+  base.addEventListener('touchstart', start, { passive: false });
+  base.addEventListener('touchmove', move, { passive: false });
+  base.addEventListener('touchend', end, { passive: false });
+  base.addEventListener('touchcancel', end, { passive: false });
+})();
+
+function bindTouchBtn(id, onDown, onUp) {
+  const el = document.getElementById(id); if (!el) return;
+  const dn = e => { e.preventDefault(); onDown(); };
+  const up = e => { e.preventDefault(); onUp(); };
+  el.addEventListener('touchstart', dn, { passive: false });
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+}
+bindTouchBtn('btn-gas', () => touch.gas = true, () => touch.gas = false);
+bindTouchBtn('btn-brake', () => touch.brake = true, () => touch.brake = false);
+bindTouchBtn('btn-h2h', () => tryTriggerHeadToHead(), () => {});
+
+function resizeCanvas() {
+  let w = window.innerWidth, h = window.innerHeight;
+  if (!touch.enabled) {
+    const aspect = 16 / 9;
+    if (w / h > aspect) w = h * aspect; else h = w / aspect;
+  }
+  canvas.width = w; canvas.height = h;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+class Car {
+  constructor(x, y, color, level, isPlayer = false) {
+    this.x = x; this.y = y; this.angle = 0; this.speed = 0;
+    this.color = color; this.level = level; this.isPlayer = isPlayer;
+    this.hp = 100; this.alive = true; this.stealth = false; this.stillTimer = 0;
+    this.w = 26; this.h = 40;
+    this.aiTarget = null; this.aiTimer = 0; this.aiSeekPlayer = false; this.dropCooldown = 3;
+  }
+  get stats() { return CAR_LEVELS[this.level]; }
+  update(dt, input) {
+    if (!this.alive) return;
+    const st = this.stats;
+    if (input.forward) this.speed += st.accel * dt;
+    else if (input.back) this.speed -= st.accel * dt;
+    else { const fr = 60 * dt; if (this.speed > 0) this.speed = Math.max(0, this.speed - fr); else if (this.speed < 0) this.speed = Math.min(0, this.speed + fr); }
+    const maxF = st.maxSpeed, maxB = st.maxSpeed * 0.4;
+    if (this.speed > maxF) this.speed = maxF;
+    if (this.speed < -maxB) this.speed = -maxB;
+    if (this.dropCooldown > 0) this.dropCooldown -= dt;
+    let turn = 0;
+    if (input.left) turn -= 1;
+    if (input.right) turn += 1;
+    if (turn !== 0 && Math.abs(this.speed) > 1) {
+      const speedFactor = 1 - Math.min(0.6, Math.abs(this.speed) / st.maxSpeed * 0.6);
+      this.angle += turn * st.turn * speedFactor * dt;
+    }
+    let speedMul = 1;
+    if (pointInPuddle(this.x, this.y)) { speedMul = 0.45; this.speed *= 0.97; }
+    const vx = Math.cos(this.angle) * this.speed * speedMul;
+    const vy = Math.sin(this.angle) * this.speed * speedMul;
+    const oldX = this.x, oldY = this.y;
+    this.x += vx * dt; this.y += vy * dt;
+    const hitHouse = circleHitsHouse(this.x, this.y, 18);
+    if (hitHouse) {
+      this.x = oldX; this.y = oldY; this.speed *= 0.3;
+      this.x += -Math.sin(this.angle) * 2; this.y += Math.cos(this.angle) * 2;
+    }
+    const margin = 20;
+    if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
+    if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
+    if (this.y < margin) { this.y = margin; this.speed *= -0.4; }
+    if (this.y > WORLD.h - margin) { this.y = WORLD.h - margin; this.speed *= -0.4; }
+    if (Math.abs(this.speed) < 2 && !input.forward && !input.back) { this.stillTimer += dt; if (this.stillTimer >= 2) this.stealth = true; }
+    else { this.stillTimer = 0; this.stealth = false; }
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+    const bright = 0.4 + this.level * 0.06;
+    const alpha = this.stealth ? 0.35 : 1;
+    if (this.level >= 6) { ctx.fillStyle = `rgba(255,255,200,${0.3 * alpha})`; ctx.beginPath(); ctx.arc(this.h / 2, 0, 10, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color; ctx.fillRect(-this.h / 2, -this.w / 2, this.h, this.w);
+    ctx.strokeStyle = `rgba(255,255,255,${0.4 + bright * 0.3})`; ctx.lineWidth = 1.5;
+    ctx.strokeRect(-this.h / 2, -this.w / 2, this.h, this.w);
+    ctx.fillStyle = '#222'; ctx.beginPath();
+    ctx.arc(this.h / 2 - 4, -this.w / 2 + 3, 3, 0, Math.PI * 2);
+    ctx.arc(this.h / 2 - 4, this.w / 2 - 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1; ctx.restore();
+    if (this.isPlayer) {
+      ctx.fillStyle = '#6cf'; ctx.beginPath();
+      ctx.moveTo(this.x, this.y - 32); ctx.lineTo(this.x - 5, this.y - 42); ctx.lineTo(this.x + 5, this.y - 42); ctx.closePath(); ctx.fill();
+    }
+    ctx.save();
+    let badgeColor;
+    if (this.level >= 10) badgeColor = '#ffd700';
+    else if (this.level >= 7) badgeColor = '#ff8c00';
+    else if (this.level >= 4) badgeColor = '#ffd33d';
+    else badgeColor = '#999';
+    const badgeY = this.isPlayer ? this.y - 56 : this.y - 30;
+    ctx.fillStyle = badgeColor; ctx.beginPath(); ctx.arc(this.x, badgeY, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#000'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(this.level), this.x, badgeY);
+    ctx.restore();
+  }
+}
+
+class CarDrop {
+  constructor(x, y) { this.x = x; this.y = y; this.level = Math.floor(Math.random() * 10) + 1; this.taken = false; this.particles = []; this.t = 0; }
+  update(dt) {
+    this.t += dt;
+    if (Math.random() < 0.5) this.particles.push({ x: this.x + (Math.random() - 0.5) * 20, y: this.y, vy: -30 - Math.random() * 40, life: 1.5, r: 6 + Math.random() * 6 });
+    for (let i = this.particles.length - 1; i >= 0; i--) { const p = this.particles[i]; p.y += p.vy * dt; p.life -= dt; if (p.life <= 0) this.particles.splice(i, 1); }
+  }
+  draw(ctx) {
+    if (this.taken) return;
+    ctx.fillStyle = 'rgba(170,80,255,0.25)'; ctx.beginPath(); ctx.arc(this.x, this.y, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,140,255,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+    for (let i = 0; i < 5; i++) {
+      const off = (this.t * 40 + i * 14) % 70; const a = 0.3 * (1 - off / 70);
+      ctx.fillStyle = `rgba(180,90,255,${a})`; ctx.beginPath(); ctx.arc(this.x, this.y - off, 14 - off * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const p of this.particles) {
+      const a = Math.max(0, p.life / 1.5) * 0.5;
+      ctx.fillStyle = `rgba(200,120,255,${a})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+function initGame() {
+  const diff = DIFFICULTY[currentDifficulty];
+  const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
+  const ais = [];
+  for (let i = 0; i < diff.aiCount; i++) {
+    const lvl = Math.floor(Math.random() * 2) + 1;
+    const p = randomPointOnRoad();
+    const ai = new Car(p.x, p.y, AI_COLORS[i % AI_COLORS.length], lvl, false);
+    ai.angle = Math.random() * Math.PI * 2;
+    ais.push(ai);
+  }
+  const zone = {
+    cx: WORLD.w / 2 + (Math.random() - 0.5) * 1000,
+    cy: WORLD.h / 2 + (Math.random() - 0.5) * 1000,
+    radius: 3000, shrinkTimer: 0,
+    shrinkInterval: diff.shrinkInterval, shrinkAmount: diff.shrinkAmount, minRadius: 400,
+  };
+  const drops = [];
+  for (let i = 0; i < 15; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
+  game = {
+    player, ais, zone, drops,
+    allCars: () => [player, ...ais].filter(c => c.alive),
+    h2h: null, h2hTimer: 0, finalPhase: false,
+    finalPoint: { x: WORLD.w / 2, y: WORLD.h / 2 },
+    state: 'playing', over: false, cam: { x: player.x, y: player.y },
+    dropTimer: 0, countdownText: '', countdownTimer: 0,
+  };
+}
+
+function tryTriggerHeadToHead() {
+  if (!game || game.state !== 'playing' || game.finalPhase || !game.player.alive) return;
+  let nearest = null, nd = Infinity;
+  for (const ai of game.ais) { if (!ai.alive) continue; const d = Math.hypot(ai.x - game.player.x, ai.y - game.player.y); if (d < nd) { nd = d; nearest = ai; } }
+  if (nearest && nd < 250) startHeadToHead(nearest);
+}
+
+function startHeadToHead(target) {
+  const z = game.zone, r = z.radius * 0.75, ang = Math.random() * Math.PI * 2, dist = Math.random() * r;
+  const cp = { x: Math.max(120, Math.min(WORLD.w - 120, z.cx + Math.cos(ang) * dist)), y: Math.max(120, Math.min(WORLD.h - 120, z.cy + Math.sin(ang) * dist)) };
+  game.h2h = { target, checkpoint: cp, phase: 'countdown', timer: 0, winner: null };
+  game.state = 'h2h'; game.h2hTimer = 0; game.countdownText = '3'; game.countdownTimer = 0;
+  document.getElementById('h2h-banner').style.display = 'block';
+}
+
+function showEndScreen(win, desc) {
+  game.state = win ? 'win' : 'over'; game.over = true;
+  const screen = document.getElementById('end-screen');
+  screen.className = win ? 'win' : 'lose';
+  document.getElementById('end-title').textContent = win ? 'WINNER!' : 'GAME OVER';
+  document.getElementById('end-desc').textContent = desc;
+  screen.style.display = 'block';
+}
+
+function update(dt) {
+  if (game.over) return;
+  if (game.state === 'h2h' && game.h2h) {
+    const h = game.h2h; h.timer += dt;
+    if (h.phase === 'countdown') {
+      game.countdownTimer += dt; const sec = game.countdownTimer;
+      if (sec < 1) game.countdownText = '3';
+      else if (sec < 2) game.countdownText = '2';
+      else if (sec < 3) game.countdownText = '1';
+      else if (sec < 3.6) game.countdownText = 'GO!';
+      else { h.phase = 'racing'; game.countdownText = ''; }
+    } else if (h.phase === 'racing') {
+      const cpD_p = Math.hypot(h.checkpoint.x - game.player.x, h.checkpoint.y - game.player.y);
+      const cpD_t = Math.hypot(h.checkpoint.x - h.target.x, h.checkpoint.y - h.target.y);
+      if (cpD_p < 40) { endHeadToHead(true); return; }
+      if (cpD_t < 40) { endHeadToHead(false); return; }
+    }
+  }
+  let forward = keys['w'] || keys['arrowup'];
+  let back = keys['s'] || keys['arrowdown'];
+  let left = keys['a'] || keys['arrowleft'];
+  let right = keys['d'] || keys['arrowright'];
+  if (touch.enabled && touch.joystick.active) {
+    if (touch.joystick.y < -0.25) forward = true;
+    if (touch.joystick.y > 0.25) back = true;
+    if (touch.joystick.x < -0.25) left = true;
+    if (touch.joystick.x > 0.25) right = true;
+  }
+  if (touch.enabled) { if (touch.gas) forward = true; if (touch.brake) back = true; }
+  game.player.update(dt, { forward, back, left, right });
+  if (game.state === 'playing' && !game.finalPhase && game.player.alive) {
+    for (const ai of game.ais) { if (!ai.alive) continue; if (Math.hypot(ai.x - game.player.x, ai.y - game.player.y) < 80) { startHeadToHead(ai); break; } }
+  }
+  for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
+  game.zone.shrinkTimer += dt;
+  if (game.zone.shrinkTimer >= game.zone.shrinkInterval) { game.zone.shrinkTimer = 0; game.zone.radius = Math.max(game.zone.minRadius, game.zone.radius - game.zone.shrinkAmount); }
+  const tx = WORLD.w / 2, ty = WORLD.h / 2;
+  game.zone.cx += (tx - game.zone.cx) * 0.05 * dt; game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
+  const allCars = game.allCars();
+  for (const c of allCars) {
+    if (Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius) {
+      c.hp -= 10 * dt;
+      if (c.hp <= 0) { c.hp = 0; c.alive = false; if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！'); }
+    }
+  }
+  game.dropTimer += dt;
+  if (game.dropTimer > 8 && game.drops.filter(d => !d.taken).length < 10) {
+    game.dropTimer = 0;
+    const p = randomPointOnRoad(null, game.zone); game.drops.push(new CarDrop(p.x, p.y));
+  }
+  for (const drop of game.drops) {
+    if (drop.taken) continue; drop.update(dt);
+    for (const c of allCars) {
+      if (!c.alive || c.dropCooldown > 0) continue;
+      if (Math.hypot(c.x - drop.x, c.y - drop.y) < 30) { drop.taken = true; c.level = Math.floor(Math.random() * 10) + 1; c.dropCooldown = 3; break; }
+    }
+  }
+  game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
+  if (!game.finalPhase && allCars.length <= 5) {
+    game.finalPhase = true; game.state = 'final';
+    const fb = document.getElementById('final-banner'); fb.style.display = 'block';
+    setTimeout(() => { fb.style.display = 'none'; }, 2500);
+  }
+  if (game.finalPhase) {
+    const fp = game.finalPoint;
+    for (const c of allCars) {
+      if (Math.hypot(c.x - fp.x, c.y - fp.y) < 40) {
+        if (c.isPlayer) showEndScreen(true, '你是淘汰之王！'); else showEndScreen(false, 'AI 抢先到达终点');
+        return;
+      }
+    }
+  }
+  game.cam.x += (game.player.x - game.cam.x) * 0.1; game.cam.y += (game.player.y - game.cam.y) * 0.1;
+}
+
+function updateAI(ai, dt) {
+  ai.aiTimer -= dt;
+  if (game.finalPhase) { steerTowards(ai, game.finalPoint.x, game.finalPoint.y, dt); ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 }; return; }
+  if (game.state === 'h2h' && game.h2h && game.h2h.target === ai && game.h2h.phase === 'racing') { steerTowards(ai, game.h2h.checkpoint.x, game.h2h.checkpoint.y, dt); ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 }; return; }
+  if (ai.aiTimer <= 0 || !ai.aiTarget) {
+    ai.aiTimer = 2 + Math.random() * 3;
+    let nearestDrop = null, nd = 400;
+    for (const d of game.drops) { if (d.taken) continue; const dist = Math.hypot(d.x - ai.x, d.y - ai.y); if (dist < nd) { nd = dist; nearestDrop = d; } }
+    const seekChance = DIFFICULTY[currentDifficulty].aiSeekPlayerChance;
+    if (!game.player.stealth && game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
+    else if (nearestDrop) { ai.aiSeekPlayer = false; ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y }; }
+    else { ai.aiSeekPlayer = false; ai.aiTarget = { x: 200 + Math.random() * (WORLD.w - 400), y: 200 + Math.random() * (WORLD.h - 400) }; }
+  }
+  const edge = 150;
+  if (ai.x < edge || ai.x > WORLD.w - edge || ai.y < edge || ai.y > WORLD.h - edge) ai.aiTarget = { x: WORLD.w / 2, y: WORLD.h / 2 };
+  if (Math.hypot(ai.x - game.zone.cx, ai.y - game.zone.cy) > game.zone.radius - 50) ai.aiTarget = { x: game.zone.cx, y: game.zone.cy };
+  steerTowards(ai, ai.aiTarget.x, ai.aiTarget.y, dt);
+  ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
+}
+
+function steerTowards(ai, tx, ty, dt) {
+  const desired = Math.atan2(ty - ai.y, tx - ai.x);
+  let diff = desired - ai.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const turnRate = ai.stats.turn * 1.2 * DIFFICULTY[currentDifficulty].aiTurnMul;
+  if (Math.abs(diff) > 0.1) { ai.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt); ai._turn = Math.sign(diff); } else ai._turn = 0;
+}
+
+function render() {
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save(); ctx.translate(canvas.width / 2, canvas.height / 2); ctx.scale(CAM_ZOOM, CAM_ZOOM); ctx.translate(-game.cam.x, -game.cam.y);
+  drawWorld(); drawZone();
+  if (game.finalPhase) drawFinalPoint();
+  for (const d of game.drops) d.draw(ctx);
+  if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
+  for (const c of game.allCars()) c.draw(ctx);
+  ctx.restore();
+  drawHUD(); drawMinimap();
+  const cd = document.getElementById('countdown');
+  if (game.countdownText) { cd.textContent = game.countdownText; cd.style.display = 'block'; } else cd.style.display = 'none';
+  document.getElementById('stealth-indicator').style.display = (game.player.stealth && game.player.alive) ? 'block' : 'none';
+}
+
+function drawWorld() {
+  const halfW = canvas.width / 2 / CAM_ZOOM + TILE, halfH = canvas.height / 2 / CAM_ZOOM + TILE;
+  const x0 = Math.max(0, game.cam.x - halfW), y0 = Math.max(0, game.cam.y - halfH);
+  const x1 = Math.min(WORLD.w, game.cam.x + halfW), y1 = Math.min(WORLD.h, game.cam.y + halfH);
+  ctx.fillStyle = '#1d2a1d'; ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+  ctx.fillStyle = 'rgba(60,80,60,0.4)';
+  for (let gx = Math.floor(x0/100)*100; gx <= x1; gx += 100) {
+    for (let gy = Math.floor(y0/100)*100; gy <= y1; gy += 100) {
+      const h = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
+      ctx.fillRect(gx + (h % 60) - 30, gy + ((h >> 8) % 60) - 30, 2, 2);
+    }
+  }
+  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1);
+  ctx.strokeStyle = '#ff5252'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
+}
+
+function drawHouses(x0, y0, x1, y1) {
+  for (const h of HOUSES) {
+    if (h.x + h.w < x0 || h.x > x1 || h.y + h.h < y0 || h.y > y1) continue;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(h.x + 4, h.y + 4, h.w, h.h);
+    ctx.fillStyle = h.color; ctx.fillRect(h.x, h.y, h.w, h.h);
+    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.25));
+    ctx.fillStyle = 'rgba(255,230,150,0.6)';
+    ctx.fillRect(h.x + 10, h.y + h.h/2 - 4, 8, 8);
+    ctx.fillRect(h.x + h.w - 18, h.y + h.h/2 - 4, 8, 8);
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.5; ctx.strokeRect(h.x, h.y, h.w, h.h);
+  }
+}
+
+function drawPuddles(x0, y0, x1, y1) {
+  const t = performance.now() / 1000;
+  for (const p of PUDDLES) {
+    if (p.x + p.r < x0 || p.x - p.r > x1 || p.y + p.r < y0 || p.y - p.r > y1) continue;
+    ctx.fillStyle = 'rgba(40,60,90,0.55)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 2; i++) {
+      const r = (t * 15 + i * 15) % p.r;
+      ctx.strokeStyle = `rgba(150,200,255,${0.3 * (1 - r/p.r)})`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(200,230,255,0.25)'; ctx.beginPath(); ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawRoads(x0, y0, x1, y1) {
+  for (const r of ROADS) {
+    const isHighway = r.type === 'highway';
+    ctx.strokeStyle = isHighway ? '#3a3a3a' : '#2e2e2e'; ctx.lineWidth = r.w + 8; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+    ctx.strokeStyle = isHighway ? '#4a4a4a' : '#3a3a3a'; ctx.lineWidth = r.w; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = isHighway ? 3 : 2; ctx.setLineDash(isHighway ? [20, 12] : [10, 8]);
+    ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+    const dx = r.x2 - r.x1, dy = r.y2 - r.y1, len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const nx = -dy / len, ny = dx / len, off = r.w / 2 - 2;
+      ctx.beginPath(); ctx.moveTo(r.x1 + nx*off, r.y1 + ny*off); ctx.lineTo(r.x2 + nx*off, r.y2 + ny*off); ctx.moveTo(r.x1 - nx*off, r.y1 - ny*off); ctx.lineTo(r.x2 - nx*off, r.y2 - ny*off); ctx.stroke();
+    }
+  }
+}
+
+function drawZone() {
+  const z = game.zone;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, WORLD.w, WORLD.h); ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2, true); ctx.fillStyle = 'rgba(120,0,0,0.35)'; ctx.fill('evenodd'); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2); ctx.clip(); ctx.fillStyle = 'rgba(180,180,200,0.05)'; ctx.fillRect(0, 0, WORLD.w, WORLD.h); ctx.restore();
+  ctx.strokeStyle = 'rgba(80,180,255,0.8)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawFinalPoint() {
+  const p = game.finalPoint, t = performance.now() / 1000;
+  for (let i = 0; i < 3; i++) {
+    const r = 50 + (t * 30 + i * 20) % 60;
+    ctx.strokeStyle = `rgba(255,210,60,${0.5 - i * 0.15})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 60);
+  grad.addColorStop(0, 'rgba(255,230,100,0.8)'); grad.addColorStop(1, 'rgba(255,210,60,0)');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(p.x, p.y, 60, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawCheckpoint(cp) {
+  const t = performance.now() / 1000;
+  const grad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 40);
+  grad.addColorStop(0, 'rgba(255,220,80,0.7)'); grad.addColorStop(1, 'rgba(255,210,60,0)');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cp.x, cp.y, 40, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffd33d'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cp.x, cp.y, 25 + Math.sin(t * 4) * 3, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#ffd33d'; ctx.beginPath(); ctx.arc(cp.x, cp.y, 5, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawHUD() {
+  document.getElementById('hp-fill').style.width = Math.max(0, game.player.hp) + '%';
+  const lvl = game.player.level;
+  document.getElementById('car-level-name').textContent = `Lv.${lvl} ${CAR_LEVELS[lvl].name}`;
+  document.getElementById('speed-val').textContent = Math.round(Math.abs(game.player.speed));
+  document.getElementById('alive-count').textContent = game.allCars().length;
+}
+
+function drawMinimap() {
+  const W = miniCanvas.width, H = miniCanvas.height, sx = W / WORLD.w, sy = H / WORLD.h;
+  miniCtx.fillStyle = '#111'; miniCtx.fillRect(0, 0, W, H);
+  const z = game.zone;
+  miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
+  for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
+  if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
+  if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
+  for (const ai of game.ais) { if (!ai.alive) continue; miniCtx.fillStyle = ai.color; miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2); }
+  if (game.player.alive) { miniCtx.fillStyle = game.player.stealth ? 'rgba(50,150,255,0.4)' : '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
+  miniCtx.strokeStyle = '#444'; miniCtx.lineWidth = 1; miniCtx.strokeRect(0.5, 0.5, W - 1, H - 1);
+}
+
+document.getElementById('choice-steal').addEventListener('click', () => {
+  const targetLevel = game._lastDefeatedLevel || 3;
+  if (targetLevel > game.player.level) game.player.level = targetLevel;
+  else game.player.level = Math.min(10, game.player.level + 1);
+  closeChoicePanel(); eliminateLastDefeated();
+});
+document.getElementById('choice-upgrade').addEventListener('click', () => { game.player.level = Math.min(10, game.player.level + 1); closeChoicePanel(); eliminateLastDefeated(); });
+function closeChoicePanel() { document.getElementById('choice-panel').style.display = 'none'; game.state = 'playing'; }
+function eliminateLastDefeated() { if (game._lastDefeated) { game._lastDefeated.alive = false; game._lastDefeated = null; } }
+
+document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('end-screen').style.display = 'none';
+  document.getElementById('choice-panel').style.display = 'none';
+  document.getElementById('h2h-banner').style.display = 'none';
+  document.getElementById('final-banner').style.display = 'none';
+  initGame();
+});
+
+function endHeadToHead(playerWon) {
+  const h = game.h2h;
+  document.getElementById('h2h-banner').style.display = 'none';
+  if (playerWon) {
+    game._lastDefeated = h.target; game._lastDefeatedLevel = h.target.level; game.state = 'choice';
+    document.getElementById('choice-desc').textContent = `击败了 Lv.${h.target.level} ${CAR_LEVELS[h.target.level].name}。选择奖励：`;
+    document.getElementById('choice-panel').style.display = 'block';
+  } else {
+    game.player.alive = false; game.player.hp = 0;
+    showEndScreen(false, '你在 1v1 中落败，被淘汰！');
+  }
+  game.h2h = null;
+}
+
+let menuMode = true;
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected'); currentDifficulty = btn.dataset.diff;
+  });
+});
+document.getElementById('start-btn').addEventListener('click', () => {
+  document.getElementById('menu').style.display = 'none'; menuMode = false; initGame();
+});
+document.getElementById('back-menu-btn').addEventListener('click', () => {
+  document.getElementById('end-screen').style.display = 'none';
+  document.getElementById('choice-panel').style.display = 'none';
+  document.getElementById('h2h-banner').style.display = 'none';
+  document.getElementById('final-banner').style.display = 'none';
+  document.getElementById('menu').style.display = 'flex'; menuMode = true; game = null;
+});
+
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000); lastTime = now;
+  if (game && !game.over && !menuMode) update(dt);
+  if (game) render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
