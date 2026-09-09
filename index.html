@@ -322,9 +322,9 @@ const CAR_LEVELS = {
 const AI_COLORS = ['#ff5252', '#ff9800', '#ab47bc', '#66bb6a', '#ec407a', '#7e57c2', '#26a69a', '#ffa726', '#ef5350', '#5c6bc0', '#ec407a', '#26c6da', '#9ccc65', '#ba68c8', '#ff8a65'];
 
 const DIFFICULTY = {
-  easy:   { aiCount: 8,  aiSeekPlayerChance: 0.15, aiTurnMul: 0.85, shrinkInterval: 25, shrinkAmount: 160 },
-  normal: { aiCount: 15, aiSeekPlayerChance: 0.35, aiTurnMul: 1.0,  shrinkInterval: 20, shrinkAmount: 220 },
-  hard:   { aiCount: 22, aiSeekPlayerChance: 0.55, aiTurnMul: 1.25, shrinkInterval: 15, shrinkAmount: 280 },
+  easy:   { aiCount: 8,  aiSeekPlayerChance: 0.15, aiTurnMul: 0.85, shrinkInterval: 25, shrinkAmount: 350 },
+  normal: { aiCount: 15, aiSeekPlayerChance: 0.35, aiTurnMul: 1.0,  shrinkInterval: 20, shrinkAmount: 480 },
+  hard:   { aiCount: 22, aiSeekPlayerChance: 0.55, aiTurnMul: 1.25, shrinkInterval: 15, shrinkAmount: 620 },
 };
 let currentDifficulty = 'normal';
 let game;
@@ -503,20 +503,21 @@ function initGame() {
 
   const diff = DIFFICULTY[currentDifficulty];
   const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
+  // 先创建安全区，确保 AI 和车包都出生在安全区内
+  const zone = {
+    cx: WORLD.w / 2 + (Math.random() - 0.5) * 800,
+    cy: WORLD.h / 2 + (Math.random() - 0.5) * 800,
+    radius: 8000, shrinkTimer: 0,
+    shrinkInterval: diff.shrinkInterval, shrinkAmount: diff.shrinkAmount, minRadius: 400,
+  };
   const ais = [];
   for (let i = 0; i < diff.aiCount; i++) {
     const lvl = Math.floor(Math.random() * 2) + 1;
-    const p = randomPointOnRoad();
+    const p = randomPointOnRoad(null, zone);
     const ai = new Car(p.x, p.y, AI_COLORS[i % AI_COLORS.length], lvl, false);
     ai.angle = Math.random() * Math.PI * 2;
     ais.push(ai);
   }
-  const zone = {
-    cx: WORLD.w / 2 + (Math.random() - 0.5) * 1000,
-    cy: WORLD.h / 2 + (Math.random() - 0.5) * 1000,
-    radius: 4500, shrinkTimer: 0,
-    shrinkInterval: diff.shrinkInterval, shrinkAmount: diff.shrinkAmount, minRadius: 400,
-  };
   const drops = [];
   for (let i = 0; i < 22; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
   game = {
