@@ -310,39 +310,6 @@ function circleHitsTree(x, y, r) {
   return null;
 }
 
-// 护栏：沿道路边缘的线段碰撞
-const RAILS = (() => {
-  const list = [];
-  for (const r of ROADS) {
-    if (r.type !== 'local') continue;
-    const dx = r.x2 - r.x1, dy = r.y2 - r.y1, len = Math.hypot(dx, dy);
-    if (len === 0) continue;
-    const nx = -dy / len, ny = dx / len, off = r.w / 2 + 6;
-    // 道路两侧各放一段护栏（每隔一段距离断开）
-    for (let t = 0.15; t < 0.85; t += 0.25) {
-      if (Math.random() < 0.6) {
-        const sx = r.x1 + dx * t, sy = r.y1 + dy * t;
-        const ex = r.x1 + dx * (t + 0.15), ey = r.y1 + dy * (t + 0.15);
-        list.push({ x1: sx + nx*off, y1: sy + ny*off, x2: ex + nx*off, y2: ey + ny*off });
-        list.push({ x1: sx - nx*off, y1: sy - ny*off, x2: ex - nx*off, y2: ey - ny*off });
-      }
-    }
-  }
-  return list;
-})();
-
-function circleHitsRail(x, y, r) {
-  for (const rl of RAILS) {
-    const dx = rl.x2 - rl.x1, dy = rl.y2 - rl.y1, len2 = dx*dx + dy*dy;
-    if (len2 === 0) continue;
-    let t = ((x - rl.x1)*dx + (y - rl.y1)*dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    const px = rl.x1 + t*dx, py = rl.y1 + t*dy;
-    if (Math.hypot(x - px, y - py) < r + 4) return rl;
-  }
-  return null;
-}
-
 const PUDDLES = (() => {
   const list = [];
   for (let i = 0; i < 60; i++) {
@@ -486,10 +453,6 @@ class Car {
     if (hitTree) {
       this.x = oldX; this.y = oldY; this.speed *= 0.4;
     }
-    const hitRail = circleHitsRail(this.x, this.y, 18);
-    if (hitRail) {
-      this.x = oldX; this.y = oldY; this.speed *= 0.5;
-    }
     const margin = 20;
     if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
     if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
@@ -590,7 +553,7 @@ function initGame() {
     player, ais, zone, drops,
     allCars: () => [player, ...ais].filter(c => c.alive),
     h2h: null, h2hTimer: 0, finalPhase: false,
-    finalPoint: { x: WORLD.w / 2, y: WORLD.h / 2 },
+    finalPoint: null,
     state: 'playing', over: false, cam: { x: player.x, y: player.y },
     dropTimer: 0, countdownText: '', countdownTimer: 0,
     aiDuels: [],
@@ -658,15 +621,21 @@ function update(dt) {
   if (game.state === 'playing' && !game.finalPhase) { checkAIDuels(); }
   updateAIDuels(dt);
   for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
-  game.zone.shrinkTimer += dt;
-  if (game.zone.shrinkTimer >= game.zone.shrinkInterval) { game.zone.shrinkTimer = 0; game.zone.radius = Math.max(game.zone.minRadius, game.zone.radius - game.zone.shrinkAmount); }
+  // 决赛阶段毒圈停止
+  if (!game.finalPhase) {
+    game.zone.shrinkTimer += dt;
+    if (game.zone.shrinkTimer >= game.zone.shrinkInterval) { game.zone.shrinkTimer = 0; game.zone.radius = Math.max(game.zone.minRadius, game.zone.radius - game.zone.shrinkAmount); }
+  }
   const tx = WORLD.w / 2, ty = WORLD.h / 2;
   game.zone.cx += (tx - game.zone.cx) * 0.05 * dt; game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
   const allCars = game.allCars();
-  for (const c of allCars) {
-    if (Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius) {
-      c.hp -= 10 * dt;
-      if (c.hp <= 0) { c.hp = 0; c.alive = false; if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！'); }
+  // 决赛阶段毒圈已消失，不扣血
+  if (!game.finalPhase) {
+    for (const c of allCars) {
+      if (Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius) {
+        c.hp -= 10 * dt;
+        if (c.hp <= 0) { c.hp = 0; c.alive = false; if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！'); }
+      }
     }
   }
   game.dropTimer += dt;
@@ -684,8 +653,17 @@ function update(dt) {
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
-    const fb = document.getElementById('final-banner'); fb.style.display = 'block';
-    setTimeout(() => { fb.style.display = 'none'; }, 2500);
+    // 终点设在安全圈外的随机方向
+    const ang = Math.random() * Math.PI * 2;
+    const distOut = game.zone.radius + 1500 + Math.random() * 1000;
+    game.finalPoint = {
+      x: Math.max(300, Math.min(WORLD.w - 300, game.zone.cx + Math.cos(ang) * distOut)),
+      y: Math.max(300, Math.min(WORLD.h - 300, game.zone.cy + Math.sin(ang) * distOut))
+    };
+    // 毒圈消失
+    game.zone.radius = Infinity;
+    const fb = document.getElementById('final-banner'); fb.textContent = '终点已在圈外开启！全速冲向终点！'; fb.style.display = 'block';
+    setTimeout(() => { fb.style.display = 'none'; }, 3000);
   }
   if (game.finalPhase) {
     const fp = game.finalPoint;
@@ -747,7 +725,6 @@ function render() {
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
-  for (const d of game.aiDuels) { if (d.checkpoint && d.phase === 'racing') drawAIDuelCheckpoint(d.checkpoint, d.a.color, d.b.color); }
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
   drawHUD(); drawMinimap();
@@ -768,7 +745,7 @@ function drawWorld() {
       ctx.fillRect(gx + (h % 60) - 30, gy + ((h >> 8) % 60) - 30, 2, 2);
     }
   }
-  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1); drawRails(x0, y0, x1, y1);
+  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1);
   ctx.strokeStyle = '#ff5252'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
 }
 
@@ -813,17 +790,6 @@ function drawTrees(x0, y0, x1, y1) {
   }
 }
 
-function drawRails(x0, y0, x1, y1) {
-  ctx.lineWidth = 4; ctx.lineCap = 'round';
-  for (const rl of RAILS) {
-    if (rl.x2 < x0 || rl.x1 > x1 || rl.y2 < y0 || rl.y1 > y1) continue;
-    ctx.strokeStyle = '#8a8a8a'; ctx.beginPath(); ctx.moveTo(rl.x1, rl.y1); ctx.lineTo(rl.x2, rl.y2); ctx.stroke();
-    ctx.strokeStyle = '#c0c0c0'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(rl.x1, rl.y1); ctx.lineTo(rl.x2, rl.y2); ctx.stroke();
-    ctx.lineWidth = 4;
-  }
-  ctx.lineCap = 'butt';
-}
-
 function drawRoads(x0, y0, x1, y1) {
   for (const r of ROADS) {
     const isHighway = r.type === 'highway';
@@ -841,6 +807,7 @@ function drawRoads(x0, y0, x1, y1) {
 }
 
 function drawZone() {
+  if (game.finalPhase) return; // 决赛阶段毒圈消失，不绘制
   const z = game.zone;
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, WORLD.w, WORLD.h); ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2, true); ctx.fillStyle = 'rgba(120,0,0,0.35)'; ctx.fill('evenodd'); ctx.restore();
   ctx.save(); ctx.beginPath(); ctx.arc(z.cx, z.cy, z.radius, 0, Math.PI * 2); ctx.clip(); ctx.fillStyle = 'rgba(180,180,200,0.05)'; ctx.fillRect(0, 0, WORLD.w, WORLD.h); ctx.restore();
@@ -848,6 +815,7 @@ function drawZone() {
 }
 
 function drawFinalPoint() {
+  if (!game.finalPoint) return;
   const p = game.finalPoint, t = performance.now() / 1000;
   for (let i = 0; i < 3; i++) {
     const r = 50 + (t * 30 + i * 20) % 60;
@@ -887,11 +855,12 @@ function drawHUD() {
 function drawMinimap() {
   const W = miniCanvas.width, H = miniCanvas.height, sx = W / WORLD.w, sy = H / WORLD.h;
   miniCtx.fillStyle = '#111'; miniCtx.fillRect(0, 0, W, H);
-  const z = game.zone;
-  miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
+  if (!game.finalPhase) {
+    const z = game.zone;
+    miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
+  }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
-  for (const d of game.aiDuels) { if (d.checkpoint) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); } }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
   for (const ai of game.ais) { if (!ai.alive) continue; miniCtx.fillStyle = ai.color; miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2); }
   if (game.player.alive) { miniCtx.fillStyle = game.player.stealth ? 'rgba(50,150,255,0.4)' : '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
