@@ -773,9 +773,47 @@ function render() {
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
+  // 1v1 时绘制指向检查点的箭头
+  if (game.h2h && game.h2h.checkpoint && game.h2h.phase === 'racing') {
+    drawDirectionArrow(game.h2h.checkpoint, '#ffd33d');
+  }
+  // 决赛阶段绘制指向终点的箭头
+  if (game.finalPhase && game.finalPoint) {
+    drawDirectionArrow(game.finalPoint, '#ff8c00');
+  }
   drawHUD(); drawMinimap();
   const cd = document.getElementById('countdown');
   if (game.countdownText) { cd.textContent = game.countdownText; cd.style.display = 'block'; } else cd.style.display = 'none';
+}
+
+function drawDirectionArrow(target, color) {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  // 屏幕坐标 -> 世界坐标的偏移：玩家在屏幕中心，所以方向就是 target - cam
+  const dx = target.x - game.cam.x, dy = target.y - game.cam.y;
+  const angle = Math.atan2(dy, dx);
+  // 箭头放在屏幕边缘，距中心一定距离
+  const r = Math.min(canvas.width, canvas.height) * 0.35;
+  const ax = cx + Math.cos(angle) * r, ay = cy + Math.sin(angle) * r;
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.rotate(angle);
+  // 箭头主体
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(18, 0);
+  ctx.lineTo(-10, -12);
+  ctx.lineTo(-4, 0);
+  ctx.lineTo(-10, 12);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // 距离文字
+  const dist = Math.hypot(target.x - game.player.x, target.y - game.player.y);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(Math.round(dist) + 'm', ax, ay + 28);
 }
 
 function drawWorld() {
