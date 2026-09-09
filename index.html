@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
+<html lang="zh-CN"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -30,6 +29,7 @@
     padding: 10px 14px; border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.15);
     min-width: 220px; pointer-events: none;
+    display: none;
   }
   .hp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .hp-label { font-size: 13px; color: #ff6b6b; font-weight: bold; width: 28px; }
@@ -42,6 +42,7 @@
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,0.55); padding: 8px 18px; border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.15); text-align: center; pointer-events: none;
+    display: none;
   }
   #alive-count { font-size: 26px; font-weight: bold; color: #fff; }
   #alive-label { font-size: 11px; color: #999; letter-spacing: 1px; }
@@ -49,12 +50,14 @@
     position: absolute; top: 12px; right: 12px;
     background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px; padding: 4px; pointer-events: none;
+    display: none;
   }
   #minimap { display: block; background: #111; }
   #hud-bottom {
     position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,0.5); padding: 6px 16px; border-radius: 6px;
     font-size: 12px; color: #bbb; pointer-events: none; letter-spacing: 0.5px;
+    display: none;
   }
   #hud-bottom kbd { background: #333; color: #fff; padding: 1px 5px; border-radius: 3px; border: 1px solid #555; font-family: monospace; }
   #countdown {
@@ -138,13 +141,13 @@
 </style>
 </head>
 <body>
-  <div id="menu">
-    <div class="title">赛车淘汰之王</div>
+  <div id="menu" style="display: flex;">
+    <div class="title" style="font-size: 55px;">赛车淘汰之王</div>
     <div class="subtitle">THE  ELIMINATOR  ·  2D</div>
     <div class="section-label">选择难度</div>
     <div class="diff-row">
-      <div class="diff-btn easy" data-diff="easy"><div class="name">简单</div><div class="desc">AI 较少且迟钝<br>缩圈缓慢</div></div>
-      <div class="diff-btn normal selected" data-diff="normal"><div class="name">普通</div><div class="desc">AI 数量与速度均衡<br>标准缩圈</div></div>
+      <div class="diff-btn easy selected" data-diff="easy"><div class="name">简单</div><div class="desc">AI 较少且迟钝<br>缩圈缓慢</div></div>
+      <div class="diff-btn normal" data-diff="normal"><div class="name">普通</div><div class="desc">AI 数量与速度均衡<br>标准缩圈</div></div>
       <div class="diff-btn hard" data-diff="hard"><div class="name">困难</div><div class="desc">AI 多且凶猛<br>缩圈迅猛</div></div>
     </div>
     <button id="start-btn">开 始 游 戏</button>
@@ -154,40 +157,40 @@
     </div>
   </div>
 
-  <canvas id="game"></canvas>
+  <canvas id="game" width="320" height="558"></canvas>
 
   <div id="hud-left">
-    <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar-bg"><div id="hp-fill" style="width:100%"></div></div></div>
-    <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2</span></div>
+    <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar-bg"><div id="hp-fill" style="width: 100%;"></div></div></div>
+    <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2 家用轿车</span></div>
     <div class="stat-row"><span>当前速度</span><span class="val" id="speed-val">0</span></div>
   </div>
 
-  <div id="hud-top"><div id="alive-count">11</div><div id="alive-label">ALIVE</div></div>
+  <div id="hud-top"><div id="alive-count">9</div><div id="alive-label">ALIVE</div></div>
   <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
   <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 停车2秒 <kbd>隐身</kbd></div>
-  <div id="countdown"></div>
+  <div id="countdown" style="display: none;">1</div>
 
-  <div id="touch-controls">
-    <div id="joystick-base"><div id="joystick-stick"></div></div>
+  <div id="touch-controls" style="display: none;">
+    <div id="joystick-base"><div id="joystick-stick" style="transform: translate(-50%, -50%);"></div></div>
     <div class="touch-btn" id="btn-brake">⬇</div>
     <div class="touch-btn" id="btn-gas">GO</div>
     <div class="touch-btn" id="btn-h2h">1v1</div>
   </div>
 
-  <div id="h2h-banner">1v1 对决！冲向金色检查点！</div>
-  <div id="final-banner">决赛圈！冲向中心终点！</div>
-  <div id="stealth-indicator">隐身中 — AI 无法发现你</div>
+  <div id="h2h-banner" style="display: none;">1v1 对决！冲向金色检查点！</div>
+  <div id="final-banner" style="display: none;">决赛圈！冲向中心终点！</div>
+  <div id="stealth-indicator" style="display: none;">隐身中 — AI 无法发现你</div>
 
-  <div id="choice-panel">
+  <div id="choice-panel" style="display: none;">
     <h2>1v1 胜利！</h2>
-    <p id="choice-desc"></p>
+    <p id="choice-desc">击败了 Lv.3 城市小跑。选择奖励：</p>
     <button class="choice-btn" id="choice-steal">夺取对方车辆</button>
     <button class="choice-btn b" id="choice-upgrade">当前车辆升1级</button>
   </div>
 
-  <div id="end-screen">
+  <div id="end-screen" class="lose" style="display: none;">
     <h1 id="end-title">GAME OVER</h1>
-    <p id="end-desc">你被淘汰了</p>
+    <p id="end-desc">AI 抢先到达终点</p>
     <div style="display:flex;gap:12px;justify-content:center;">
       <button id="restart-btn">重新开始</button>
       <button id="back-menu-btn" style="padding:12px 24px;font-size:16px;font-weight:bold;background:#444;color:#fff;border:1px solid #888;border-radius:6px;cursor:pointer;">返回主菜单</button>
@@ -200,8 +203,8 @@ const ctx = canvas.getContext('2d');
 const miniCanvas = document.getElementById('minimap');
 const miniCtx = miniCanvas.getContext('2d');
 
-const WORLD = { w: 10000, h: 10000 };
-const CAM_ZOOM = 0.5;
+const WORLD = { w: 20000, h: 20000 };
+const CAM_ZOOM = 0.4;
 const TILE = 80;
 
 const ROADS = (() => {
@@ -289,11 +292,11 @@ function circleHitsHouse(x, y, r) {
 
 const PUDDLES = (() => {
   const list = [];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 50; i++) {
     let x, y;
     if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
     else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
-    list.push({ x, y, r: 50 + Math.random() * 50 });
+    list.push({ x, y, r: 50 + Math.random() * 60 });
   }
   return list;
 })();
@@ -333,7 +336,6 @@ window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 const touch = { enabled: false, joystick: { x: 0, y: 0, active: false }, gas: false, brake: false };
 if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
   touch.enabled = true;
-  document.getElementById('touch-controls').style.display = 'block';
 }
 
 (function setupJoystick() {
@@ -492,6 +494,13 @@ class CarDrop {
 }
 
 function initGame() {
+  // 显示所有 HUD 元素
+  document.getElementById('hud-left').style.display = 'block';
+  document.getElementById('hud-top').style.display = 'block';
+  document.getElementById('minimap-wrap').style.display = 'block';
+  if (!touch.enabled) document.getElementById('hud-bottom').style.display = 'block';
+  if (touch.enabled) document.getElementById('touch-controls').style.display = 'block';
+
   const diff = DIFFICULTY[currentDifficulty];
   const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
   const ais = [];
@@ -505,11 +514,11 @@ function initGame() {
   const zone = {
     cx: WORLD.w / 2 + (Math.random() - 0.5) * 1000,
     cy: WORLD.h / 2 + (Math.random() - 0.5) * 1000,
-    radius: 3000, shrinkTimer: 0,
+    radius: 4500, shrinkTimer: 0,
     shrinkInterval: diff.shrinkInterval, shrinkAmount: diff.shrinkAmount, minRadius: 400,
   };
   const drops = [];
-  for (let i = 0; i < 15; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
+  for (let i = 0; i < 22; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
   game = {
     player, ais, zone, drops,
     allCars: () => [player, ...ais].filter(c => c.alive),
@@ -813,10 +822,16 @@ document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('menu').style.display = 'none'; menuMode = false; initGame();
 });
 document.getElementById('back-menu-btn').addEventListener('click', () => {
+  // 隐藏所有 HUD 元素
+  document.getElementById('hud-left').style.display = 'none';
+  document.getElementById('hud-top').style.display = 'none';
+  document.getElementById('minimap-wrap').style.display = 'none';
+  document.getElementById('hud-bottom').style.display = 'none';
   document.getElementById('end-screen').style.display = 'none';
   document.getElementById('choice-panel').style.display = 'none';
   document.getElementById('h2h-banner').style.display = 'none';
   document.getElementById('final-banner').style.display = 'none';
+  document.getElementById('touch-controls').style.display = 'none';
   document.getElementById('menu').style.display = 'flex'; menuMode = true; game = null;
 });
 
@@ -829,5 +844,6 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 </script>
-</body>
-</html>
+
+
+</body></html>
