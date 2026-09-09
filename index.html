@@ -593,6 +593,7 @@ function initGame() {
     finalPoint: { x: WORLD.w / 2, y: WORLD.h / 2 },
     state: 'playing', over: false, cam: { x: player.x, y: player.y },
     dropTimer: 0, countdownText: '', countdownTimer: 0,
+    aiDuels: [],
   };
 }
 
@@ -653,6 +654,9 @@ function update(dt) {
   if (game.state === 'playing' && !game.finalPhase && game.player.alive) {
     for (const ai of game.ais) { if (!ai.alive) continue; if (Math.hypot(ai.x - game.player.x, ai.y - game.player.y) < 80) { startHeadToHead(ai); break; } }
   }
+  // AI 之间 1v1 检测与更新
+  if (game.state === 'playing' && !game.finalPhase) { checkAIDuels(); }
+  updateAIDuels(dt);
   for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
   game.zone.shrinkTimer += dt;
   if (game.zone.shrinkTimer >= game.zone.shrinkInterval) { game.zone.shrinkTimer = 0; game.zone.radius = Math.max(game.zone.minRadius, game.zone.radius - game.zone.shrinkAmount); }
@@ -699,6 +703,18 @@ function updateAI(ai, dt) {
   ai.aiTimer -= dt;
   if (game.finalPhase) { steerTowards(ai, game.finalPoint.x, game.finalPoint.y, dt); ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 }; return; }
   if (game.state === 'h2h' && game.h2h && game.h2h.target === ai && game.h2h.phase === 'racing') { steerTowards(ai, game.h2h.checkpoint.x, game.h2h.checkpoint.y, dt); ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 }; return; }
+  // AI 正在进行 AI vs AI 对决
+  for (const d of game.aiDuels) {
+    if (d.phase === 'racing' && (d.a === ai || d.b === ai)) {
+      steerTowards(ai, d.checkpoint.x, d.checkpoint.y, dt);
+      ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
+      return;
+    }
+    if (d.phase === 'countdown' && (d.a === ai || d.b === ai)) {
+      ai._input = { forward: false, back: false, left: false, right: false };
+      return;
+    }
+  }
   if (ai.aiTimer <= 0 || !ai.aiTarget) {
     ai.aiTimer = 2 + Math.random() * 3;
     let nearestDrop = null, nd = 400;
@@ -731,6 +747,7 @@ function render() {
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
+  for (const d of game.aiDuels) { if (d.checkpoint && d.phase === 'racing') drawAIDuelCheckpoint(d.checkpoint, d.a.color, d.b.color); }
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
   drawHUD(); drawMinimap();
@@ -850,6 +867,15 @@ function drawCheckpoint(cp) {
   ctx.fillStyle = '#ffd33d'; ctx.beginPath(); ctx.arc(cp.x, cp.y, 5, 0, Math.PI * 2); ctx.fill();
 }
 
+function drawAIDuelCheckpoint(cp, colorA, colorB) {
+  const t = performance.now() / 1000;
+  const grad = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, 40);
+  grad.addColorStop(0, 'rgba(255,120,30,0.6)'); grad.addColorStop(1, 'rgba(255,80,0,0)');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cp.x, cp.y, 40, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cp.x, cp.y, 25 + Math.sin(t * 4) * 3, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#ff8c00'; ctx.beginPath(); ctx.arc(cp.x, cp.y, 5, 0, Math.PI * 2); ctx.fill();
+}
+
 function drawHUD() {
   document.getElementById('hp-fill').style.width = Math.max(0, game.player.hp) + '%';
   const lvl = game.player.level;
@@ -865,6 +891,7 @@ function drawMinimap() {
   miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
+  for (const d of game.aiDuels) { if (d.checkpoint) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); } }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
   for (const ai of game.ais) { if (!ai.alive) continue; miniCtx.fillStyle = ai.color; miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2); }
   if (game.player.alive) { miniCtx.fillStyle = game.player.stealth ? 'rgba(50,150,255,0.4)' : '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
@@ -901,6 +928,55 @@ function endHeadToHead(playerWon) {
     showEndScreen(false, '你在 1v1 中落败，被淘汰！');
   }
   game.h2h = null;
+}
+
+// ===== AI 之间 1v1 =====
+function isAIInDuel(ai) {
+  if (game.h2h && game.h2h.target === ai) return true;
+  for (const d of game.aiDuels) { if (d.a === ai || d.b === ai) return true; }
+  return false;
+}
+
+function checkAIDuels() {
+  if (game.aiDuels.length >= 3) return;
+  const aliveAIs = game.ais.filter(a => a.alive);
+  for (let i = 0; i < aliveAIs.length; i++) {
+    for (let j = i + 1; j < aliveAIs.length; j++) {
+      const a = aliveAIs[i], b = aliveAIs[j];
+      if (isAIInDuel(a) || isAIInDuel(b)) continue;
+      if (Math.hypot(a.x - b.x, a.y - b.y) < 80) {
+        startAIDuel(a, b);
+        if (game.aiDuels.length >= 3) return;
+      }
+    }
+  }
+}
+
+function startAIDuel(a, b) {
+  const z = game.zone, r = z.radius * 0.6, ang = Math.random() * Math.PI * 2, dist = Math.random() * r;
+  const cp = { x: Math.max(120, Math.min(WORLD.w - 120, z.cx + Math.cos(ang) * dist)), y: Math.max(120, Math.min(WORLD.h - 120, z.cy + Math.sin(ang) * dist)) };
+  game.aiDuels.push({ a, b, checkpoint: cp, phase: 'countdown', timer: 0 });
+}
+
+function updateAIDuels(dt) {
+  for (let i = game.aiDuels.length - 1; i >= 0; i--) {
+    const d = game.aiDuels[i];
+    if (!d.a.alive || !d.b.alive) { game.aiDuels.splice(i, 1); continue; }
+    d.timer += dt;
+    if (d.phase === 'countdown') {
+      if (d.timer >= 3.6) { d.phase = 'racing'; }
+    } else if (d.phase === 'racing') {
+      const dA = Math.hypot(d.checkpoint.x - d.a.x, d.checkpoint.y - d.a.y);
+      const dB = Math.hypot(d.checkpoint.x - d.b.x, d.checkpoint.y - d.b.y);
+      if (dA < 40) { endAIDuel(d, d.a, d.b); game.aiDuels.splice(i, 1); }
+      else if (dB < 40) { endAIDuel(d, d.b, d.a); game.aiDuels.splice(i, 1); }
+    }
+  }
+}
+
+function endAIDuel(d, winner, loser) {
+  loser.alive = false; loser.hp = 0;
+  winner.level = Math.min(10, winner.level + 1);
 }
 
 let menuMode = true;
