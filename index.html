@@ -102,11 +102,6 @@
     text-shadow: 0 0 30px rgba(255,210,60,0.9), 0 4px 8px #000;
     display: none; pointer-events: none; text-align: center; animation: cdpop 0.7s ease-out;
   }
-  #stealth-indicator {
-    position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
-    background: rgba(100,100,255,0.7); padding: 4px 14px; border-radius: 4px;
-    font-size: 12px; color: #fff; display: none; pointer-events: none;
-  }
   #touch-controls { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
   #joystick-base { position: absolute; bottom: 30px; left: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); pointer-events: auto; touch-action: none; }
   #joystick-stick { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; border-radius: 50%; background: rgba(80,180,255,0.7); border: 2px solid rgba(255,255,255,0.6); pointer-events: none; }
@@ -152,8 +147,8 @@
     </div>
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
-      <kbd>W A S D</kbd> 移动 &nbsp; <kbd>SPACE</kbd> 触发 1v1 &nbsp; 停车 2 秒 <kbd>隐身</kbd><br>
-      拾取紫色车包换高级车 · 击败对手夺取车辆 · 最后存活者获胜
+      <kbd>W A S D</kbd> 移动 &nbsp; <kbd>SPACE</kbd> 触发 1v1<br>
+      拾取紫色车包换高级车 · 绿色修理包恢复耐久 · 碰撞掉血 · 最后存活者获胜
     </div>
   </div>
 
@@ -167,7 +162,7 @@
 
   <div id="hud-top"><div id="alive-count">9</div><div id="alive-label">ALIVE</div></div>
   <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
-  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 停车2秒 <kbd>隐身</kbd></div>
+  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 拾取绿色修理包恢复HP</div>
   <div id="countdown" style="display: none;">1</div>
 
   <div id="touch-controls" style="display: none;">
@@ -179,7 +174,7 @@
 
   <div id="h2h-banner" style="display: none;">1v1 对决！冲向金色检查点！</div>
   <div id="final-banner" style="display: none;">决赛圈！冲向中心终点！</div>
-  <div id="stealth-indicator" style="display: none;">隐身中 — AI 无法发现你</div>
+
 
   <div id="choice-panel" style="display: none;">
     <h2>1v1 胜利！</h2>
@@ -416,7 +411,7 @@ class Car {
   constructor(x, y, color, level, isPlayer = false) {
     this.x = x; this.y = y; this.angle = 0; this.speed = 0;
     this.color = color; this.level = level; this.isPlayer = isPlayer;
-    this.hp = 100; this.alive = true; this.stealth = false; this.stillTimer = 0;
+    this.hp = 100; this.alive = true;
     this.w = 26; this.h = 40;
     this.aiTarget = null; this.aiTimer = 0; this.aiSeekPlayer = false; this.dropCooldown = 3;
   }
@@ -458,16 +453,12 @@ class Car {
     if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
     if (this.y < margin) { this.y = margin; this.speed *= -0.4; }
     if (this.y > WORLD.h - margin) { this.y = WORLD.h - margin; this.speed *= -0.4; }
-    if (Math.abs(this.speed) < 2 && !input.forward && !input.back) { this.stillTimer += dt; if (this.stillTimer >= 2) this.stealth = true; }
-    else { this.stillTimer = 0; this.stealth = false; }
   }
   draw(ctx) {
     if (!this.alive) return;
     ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
     const bright = 0.4 + this.level * 0.06;
-    const alpha = this.stealth ? 0.35 : 1;
-    if (this.level >= 6) { ctx.fillStyle = `rgba(255,255,200,${0.3 * alpha})`; ctx.beginPath(); ctx.arc(this.h / 2, 0, 10, 0, Math.PI * 2); ctx.fill(); }
-    ctx.globalAlpha = alpha;
+    if (this.level >= 6) { ctx.fillStyle = `rgba(255,255,200,0.3)`; ctx.beginPath(); ctx.arc(this.h / 2, 0, 10, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = this.color; ctx.fillRect(-this.h / 2, -this.w / 2, this.h, this.w);
     ctx.strokeStyle = `rgba(255,255,255,${0.4 + bright * 0.3})`; ctx.lineWidth = 1.5;
     ctx.strokeRect(-this.h / 2, -this.w / 2, this.h, this.w);
@@ -475,7 +466,7 @@ class Car {
     ctx.arc(this.h / 2 - 4, -this.w / 2 + 3, 3, 0, Math.PI * 2);
     ctx.arc(this.h / 2 - 4, this.w / 2 - 3, 3, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = 1; ctx.restore();
+    ctx.restore();
     if (this.isPlayer) {
       ctx.fillStyle = '#6cf'; ctx.beginPath();
       ctx.moveTo(this.x, this.y - 32); ctx.lineTo(this.x - 5, this.y - 42); ctx.lineTo(this.x + 5, this.y - 42); ctx.closePath(); ctx.fill();
@@ -522,6 +513,24 @@ class CarDrop {
   }
 }
 
+class RepairKit {
+  constructor(x, y) { this.x = x; this.y = y; this.taken = false; this.t = 0; }
+  update(dt) { this.t += dt; }
+  draw(ctx) {
+    if (this.taken) return;
+    const pulse = 1 + Math.sin(this.t * 3) * 0.1;
+    ctx.fillStyle = 'rgba(40,200,80,0.25)'; ctx.beginPath(); ctx.arc(this.x, this.y, 28 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(80,255,120,0.6)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.x, this.y, 26, 0, Math.PI * 2); ctx.stroke();
+    // 十字标志
+    ctx.fillStyle = '#2dd060';
+    ctx.fillRect(this.x - 14, this.y - 4, 28, 8);
+    ctx.fillRect(this.x - 4, this.y - 14, 8, 28);
+    ctx.strokeStyle = 'rgba(0,80,20,0.8)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(this.x - 14, this.y - 4, 28, 8);
+    ctx.strokeRect(this.x - 4, this.y - 14, 8, 28);
+  }
+}
+
 function initGame() {
   // 显示所有 HUD 元素
   document.getElementById('hud-left').style.display = 'block';
@@ -549,13 +558,15 @@ function initGame() {
   }
   const drops = [];
   for (let i = 0; i < 22; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
+  const repairKits = [];
+  for (let i = 0; i < 12; i++) { const p = randomPointOnRoad(null, zone); repairKits.push(new RepairKit(p.x, p.y)); }
   game = {
-    player, ais, zone, drops,
+    player, ais, zone, drops, repairKits,
     allCars: () => [player, ...ais].filter(c => c.alive),
     h2h: null, h2hTimer: 0, finalPhase: false,
     finalPoint: null,
     state: 'playing', over: false, cam: { x: player.x, y: player.y },
-    dropTimer: 0, countdownText: '', countdownTimer: 0,
+    dropTimer: 0, repairTimer: 0, countdownText: '', countdownTimer: 0,
     aiDuels: [],
   };
 }
@@ -621,6 +632,27 @@ function update(dt) {
   if (game.state === 'playing' && !game.finalPhase) { checkAIDuels(); }
   updateAIDuels(dt);
   for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
+  const allCars = game.allCars();
+  // 车与车碰撞掉血（基于速度差）
+  for (let i = 0; i < allCars.length; i++) {
+    for (let j = i + 1; j < allCars.length; j++) {
+      const a = allCars[i], b = allCars[j];
+      const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
+      if (dist < 30 && dist > 0) {
+        const relSpeed = Math.abs(a.speed) + Math.abs(b.speed);
+        if (relSpeed > 30) {
+          const dmg = (relSpeed - 30) * 0.15 * dt;
+          a.hp -= dmg; b.hp -= dmg;
+          if (a.hp <= 0) { a.hp = 0; a.alive = false; if (a.isPlayer) showEndScreen(false, '车辆被撞毁！'); }
+          if (b.hp <= 0) { b.hp = 0; b.alive = false; if (b.isPlayer) showEndScreen(false, '车辆被撞毁！'); }
+          // 弹开
+          const nx = dx / dist, ny = dy / dist;
+          a.x -= nx * 2; a.y -= ny * 2; b.x += nx * 2; b.y += ny * 2;
+          a.speed *= 0.6; b.speed *= 0.6;
+        }
+      }
+    }
+  }
   // 决赛阶段毒圈停止
   if (!game.finalPhase) {
     game.zone.shrinkTimer += dt;
@@ -628,7 +660,6 @@ function update(dt) {
   }
   const tx = WORLD.w / 2, ty = WORLD.h / 2;
   game.zone.cx += (tx - game.zone.cx) * 0.05 * dt; game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
-  const allCars = game.allCars();
   // 决赛阶段毒圈已消失，不扣血
   if (!game.finalPhase) {
     for (const c of allCars) {
@@ -651,6 +682,20 @@ function update(dt) {
     }
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
+  // 修理包拾取
+  game.repairTimer += dt;
+  if (game.repairTimer > 12 && game.repairKits.filter(r => !r.taken).length < 8) {
+    game.repairTimer = 0;
+    const p = randomPointOnRoad(null, game.zone); game.repairKits.push(new RepairKit(p.x, p.y));
+  }
+  for (const kit of game.repairKits) {
+    if (kit.taken) continue; kit.update(dt);
+    for (const c of allCars) {
+      if (!c.alive) continue;
+      if (Math.hypot(c.x - kit.x, c.y - kit.y) < 30) { kit.taken = true; c.hp = Math.min(100, c.hp + 50); break; }
+    }
+  }
+  game.repairKits = game.repairKits.filter(r => !r.taken);
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
     // 终点设在安全圈外的随机方向
@@ -698,7 +743,7 @@ function updateAI(ai, dt) {
     let nearestDrop = null, nd = 400;
     for (const d of game.drops) { if (d.taken) continue; const dist = Math.hypot(d.x - ai.x, d.y - ai.y); if (dist < nd) { nd = dist; nearestDrop = d; } }
     const seekChance = DIFFICULTY[currentDifficulty].aiSeekPlayerChance;
-    if (!game.player.stealth && game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
+    if (game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
     else if (nearestDrop) { ai.aiSeekPlayer = false; ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y }; }
     else { ai.aiSeekPlayer = false; ai.aiTarget = { x: 200 + Math.random() * (WORLD.w - 400), y: 200 + Math.random() * (WORLD.h - 400) }; }
   }
@@ -724,13 +769,13 @@ function render() {
   drawWorld(); drawZone();
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
+  for (const r of game.repairKits) r.draw(ctx);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
   drawHUD(); drawMinimap();
   const cd = document.getElementById('countdown');
   if (game.countdownText) { cd.textContent = game.countdownText; cd.style.display = 'block'; } else cd.style.display = 'none';
-  document.getElementById('stealth-indicator').style.display = (game.player.stealth && game.player.alive) ? 'block' : 'none';
 }
 
 function drawWorld() {
@@ -860,10 +905,11 @@ function drawMinimap() {
     miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
   }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
+  for (const r of game.repairKits) { if (r.taken) continue; miniCtx.fillStyle = '#2dd060'; miniCtx.fillRect(r.x * sx - 1.5, r.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
   for (const ai of game.ais) { if (!ai.alive) continue; miniCtx.fillStyle = ai.color; miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2); }
-  if (game.player.alive) { miniCtx.fillStyle = game.player.stealth ? 'rgba(50,150,255,0.4)' : '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
+  if (game.player.alive) { miniCtx.fillStyle = '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
   miniCtx.strokeStyle = '#444'; miniCtx.lineWidth = 1; miniCtx.strokeRect(0.5, 0.5, W - 1, H - 1);
 }
 
