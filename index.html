@@ -261,8 +261,8 @@ const HOUSES = (() => {
   for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
     for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
       if (Math.random() < 0.7) {
-        const w = 90 + Math.random() * 80;
-        const h = 90 + Math.random() * 80;
+        const w = 120 + Math.random() * 120;
+        const h = 120 + Math.random() * 120;
         const cx = gx + (Math.random() - 0.5) * 100;
         const cy = gy + (Math.random() - 0.5) * 100;
         if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
@@ -290,13 +290,66 @@ function circleHitsHouse(x, y, r) {
   return null;
 }
 
-const PUDDLES = (() => {
+// 树木：碰撞圆形
+const TREES = (() => {
   const list = [];
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 200; i++) {
     let x, y;
     if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
     else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
-    list.push({ x, y, r: 50 + Math.random() * 60 });
+    if (isBlockedByHouse(x, y)) continue;
+    list.push({ x, y, r: 18 + Math.random() * 12, trunk: 8 + Math.random() * 4, shade: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'][Math.floor(Math.random()*5)] });
+  }
+  return list;
+})();
+
+function circleHitsTree(x, y, r) {
+  for (const t of TREES) {
+    if (Math.hypot(x - t.x, y - t.y) < r + t.trunk) return t;
+  }
+  return null;
+}
+
+// 护栏：沿道路边缘的线段碰撞
+const RAILS = (() => {
+  const list = [];
+  for (const r of ROADS) {
+    if (r.type !== 'local') continue;
+    const dx = r.x2 - r.x1, dy = r.y2 - r.y1, len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    const nx = -dy / len, ny = dx / len, off = r.w / 2 + 6;
+    // 道路两侧各放一段护栏（每隔一段距离断开）
+    for (let t = 0.15; t < 0.85; t += 0.25) {
+      if (Math.random() < 0.6) {
+        const sx = r.x1 + dx * t, sy = r.y1 + dy * t;
+        const ex = r.x1 + dx * (t + 0.15), ey = r.y1 + dy * (t + 0.15);
+        list.push({ x1: sx + nx*off, y1: sy + ny*off, x2: ex + nx*off, y2: ey + ny*off });
+        list.push({ x1: sx - nx*off, y1: sy - ny*off, x2: ex - nx*off, y2: ey - ny*off });
+      }
+    }
+  }
+  return list;
+})();
+
+function circleHitsRail(x, y, r) {
+  for (const rl of RAILS) {
+    const dx = rl.x2 - rl.x1, dy = rl.y2 - rl.y1, len2 = dx*dx + dy*dy;
+    if (len2 === 0) continue;
+    let t = ((x - rl.x1)*dx + (y - rl.y1)*dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const px = rl.x1 + t*dx, py = rl.y1 + t*dy;
+    if (Math.hypot(x - px, y - py) < r + 4) return rl;
+  }
+  return null;
+}
+
+const PUDDLES = (() => {
+  const list = [];
+  for (let i = 0; i < 60; i++) {
+    let x, y;
+    if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
+    else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
+    list.push({ x, y, r: 80 + Math.random() * 100 });
   }
   return list;
 })();
@@ -429,6 +482,14 @@ class Car {
       this.x = oldX; this.y = oldY; this.speed *= 0.3;
       this.x += -Math.sin(this.angle) * 2; this.y += Math.cos(this.angle) * 2;
     }
+    const hitTree = circleHitsTree(this.x, this.y, 18);
+    if (hitTree) {
+      this.x = oldX; this.y = oldY; this.speed *= 0.4;
+    }
+    const hitRail = circleHitsRail(this.x, this.y, 18);
+    if (hitRail) {
+      this.x = oldX; this.y = oldY; this.speed *= 0.5;
+    }
     const margin = 20;
     if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
     if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
@@ -490,6 +551,11 @@ class CarDrop {
       const a = Math.max(0, p.life / 1.5) * 0.5;
       ctx.fillStyle = `rgba(200,120,255,${a})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
     }
+    // 显示等级数字
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#5a1a8a'; ctx.lineWidth = 3;
+    ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.strokeText(`Lv${this.level}`, this.x, this.y);
+    ctx.fillText(`Lv${this.level}`, this.x, this.y);
   }
 }
 
@@ -608,7 +674,7 @@ function update(dt) {
     if (drop.taken) continue; drop.update(dt);
     for (const c of allCars) {
       if (!c.alive || c.dropCooldown > 0) continue;
-      if (Math.hypot(c.x - drop.x, c.y - drop.y) < 30) { drop.taken = true; c.level = Math.floor(Math.random() * 10) + 1; c.dropCooldown = 3; break; }
+      if (Math.hypot(c.x - drop.x, c.y - drop.y) < 30) { drop.taken = true; if (drop.level > c.level) c.level = drop.level; c.dropCooldown = 3; break; }
     }
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
@@ -685,7 +751,7 @@ function drawWorld() {
       ctx.fillRect(gx + (h % 60) - 30, gy + ((h >> 8) % 60) - 30, 2, 2);
     }
   }
-  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1);
+  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1); drawRails(x0, y0, x1, y1);
   ctx.strokeStyle = '#ff5252'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
 }
 
@@ -714,6 +780,31 @@ function drawPuddles(x0, y0, x1, y1) {
     }
     ctx.fillStyle = 'rgba(200,230,255,0.25)'; ctx.beginPath(); ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.3, 0, Math.PI * 2); ctx.fill();
   }
+}
+
+function drawTrees(x0, y0, x1, y1) {
+  for (const t of TREES) {
+    if (t.x + t.r < x0 || t.x - t.r > x1 || t.y + t.r < y0 || t.y - t.r > y1) continue;
+    // 树荫
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(t.x + 4, t.y + 4, t.r, t.r * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+    // 树冠
+    ctx.fillStyle = t.shade; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+    // 高光
+    ctx.fillStyle = 'rgba(100,180,100,0.3)'; ctx.beginPath(); ctx.arc(t.x - t.r*0.3, t.y - t.r*0.3, t.r*0.5, 0, Math.PI * 2); ctx.fill();
+    // 树干
+    ctx.fillStyle = '#4a3a1a'; ctx.fillRect(t.x - t.trunk/2, t.y - t.trunk/2, t.trunk, t.trunk);
+  }
+}
+
+function drawRails(x0, y0, x1, y1) {
+  ctx.lineWidth = 4; ctx.lineCap = 'round';
+  for (const rl of RAILS) {
+    if (rl.x2 < x0 || rl.x1 > x1 || rl.y2 < y0 || rl.y1 > y1) continue;
+    ctx.strokeStyle = '#8a8a8a'; ctx.beginPath(); ctx.moveTo(rl.x1, rl.y1); ctx.lineTo(rl.x2, rl.y2); ctx.stroke();
+    ctx.strokeStyle = '#c0c0c0'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(rl.x1, rl.y1); ctx.lineTo(rl.x2, rl.y2); ctx.stroke();
+    ctx.lineWidth = 4;
+  }
+  ctx.lineCap = 'butt';
 }
 
 function drawRoads(x0, y0, x1, y1) {
