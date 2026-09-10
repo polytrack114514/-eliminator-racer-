@@ -78,7 +78,7 @@
   #kill-feed {
     position: absolute; top: 50px; right: 12px;
     display: flex; flex-direction: column; gap: 4px;
-    pointer-events: none; z-index: 50; max-width: 260px;
+    pointer-events: none; z-index: 500; max-width: 260px;
   }
   .kill-msg {
     background: rgba(0,0,0,0.65); border-left: 3px solid #ff4444;
@@ -620,9 +620,14 @@ function addKillFeed(winner, loser, reason) {
   const feed = document.getElementById('kill-feed');
   const msg = document.createElement('div');
   msg.className = 'kill-msg';
-  const wName = winner ? winner.name : '毒圈';
-  const lName = loser.name;
-  msg.textContent = `${wName} 淘汰了 ${lName}`;
+  if (!winner && !loser && reason) {
+    msg.textContent = reason; // 特殊消息如 "AI3 vs AI5 开始决斗！"
+    msg.style.borderLeftColor = '#ff8c00';
+  } else {
+    const wName = winner ? winner.name : '毒圈';
+    const lName = loser ? loser.name : '未知';
+    msg.textContent = `${wName} 淘汰了 ${lName}`;
+  }
   feed.appendChild(msg);
   setTimeout(() => msg.remove(), 5000);
   while (feed.children.length > 5) feed.removeChild(feed.firstChild);
@@ -662,14 +667,20 @@ function update(dt) {
     for (const ai of game.ais) { if (!ai.alive) continue; if (Math.hypot(ai.x - game.player.x, ai.y - game.player.y) < 80) { startHeadToHead(ai); break; } }
   }
   // AI 之间 1v1 检测与更新
-  if (game.state === 'playing' && !game.finalPhase) { checkAIDuels(); }
+  if (!game.finalPhase) { checkAIDuels(dt); }
   updateAIDuels(dt);
   for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
   const allCars = game.allCars();
-  // 车与车碰撞：弹开减速（无血量系统）
+  // 车与车碰撞：弹开减速（决斗中的两车互不碰撞，避免卡住）
+  function areDuelPair(a, b) {
+    for (const d of game.aiDuels) { if ((d.a === a && d.b === b) || (d.a === b && d.b === a)) return true; }
+    if (game.h2h) { if ((game.h2h.target === a && game.player === b) || (game.h2h.target === b && game.player === a)) return true; }
+    return false;
+  }
   for (let i = 0; i < allCars.length; i++) {
     for (let j = i + 1; j < allCars.length; j++) {
       const a = allCars[i], b = allCars[j];
+      if (areDuelPair(a, b)) continue;
       const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
       if (dist < 30 && dist > 0) {
         const nx = dx / dist, ny = dy / dist;
@@ -740,13 +751,9 @@ function updateAI(ai, dt) {
   if (game.state === 'h2h' && game.h2h && game.h2h.target === ai && game.h2h.phase === 'racing') { steerTowards(ai, game.h2h.checkpoint.x, game.h2h.checkpoint.y, dt); ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 }; return; }
   // AI 正在进行 AI vs AI 对决
   for (const d of game.aiDuels) {
-    if (d.phase === 'racing' && (d.a === ai || d.b === ai)) {
+    if (d.a === ai || d.b === ai) {
       steerTowards(ai, d.checkpoint.x, d.checkpoint.y, dt);
       ai._input = { forward: true, back: false, left: ai._turn < 0, right: ai._turn > 0 };
-      return;
-    }
-    if (d.phase === 'countdown' && (d.a === ai || d.b === ai)) {
-      ai._input = { forward: false, back: false, left: false, right: false };
       return;
     }
   }
@@ -782,6 +789,7 @@ function render() {
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
+  for (const d of game.aiDuels) { drawAIDuelCheckpoint(d.checkpoint, d.a.color, d.b.color); }
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
   // 1v1 时绘制指向检查点的箭头
@@ -954,6 +962,7 @@ function drawMinimap() {
   }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
+  for (const d of game.aiDuels) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
   // 敌方雷达：只显示雷达范围内的敌人，红色脉冲点
   if (game.player.alive) {
@@ -1019,25 +1028,33 @@ function isAIInDuel(ai) {
   return false;
 }
 
-function checkAIDuels() {
+let _aiDuelCheckTimer = 0;
+function checkAIDuels(dt) {
+  _aiDuelCheckTimer += dt;
   if (game.aiDuels.length >= 3) return;
+  if (_aiDuelCheckTimer < 3) return; // 每3秒尝试一次
+  _aiDuelCheckTimer = 0;
   const aliveAIs = game.ais.filter(a => a.alive);
+  // 找两个最近的非决斗 AI，距离在 500-5000 之间
+  let best = null, bestDist = Infinity;
   for (let i = 0; i < aliveAIs.length; i++) {
+    if (isAIInDuel(aliveAIs[i])) continue;
     for (let j = i + 1; j < aliveAIs.length; j++) {
-      const a = aliveAIs[i], b = aliveAIs[j];
-      if (isAIInDuel(a) || isAIInDuel(b)) continue;
-      if (Math.hypot(a.x - b.x, a.y - b.y) < 80) {
-        startAIDuel(a, b);
-        if (game.aiDuels.length >= 3) return;
-      }
+      if (isAIInDuel(aliveAIs[j])) continue;
+      const d = Math.hypot(aliveAIs[i].x - aliveAIs[j].x, aliveAIs[i].y - aliveAIs[j].y);
+      if (d > 5000) continue; // 太远不配对
+      if (d < 500) continue;  // 太近让他们自然碰撞
+      if (d < bestDist) { bestDist = d; best = [aliveAIs[i], aliveAIs[j]]; }
     }
   }
+  if (best) startAIDuel(best[0], best[1]);
 }
 
 function startAIDuel(a, b) {
   const z = game.zone, r = z.radius * 0.6, ang = Math.random() * Math.PI * 2, dist = Math.random() * r;
   const cp = { x: Math.max(120, Math.min(WORLD.w - 120, z.cx + Math.cos(ang) * dist)), y: Math.max(120, Math.min(WORLD.h - 120, z.cy + Math.sin(ang) * dist)) };
-  game.aiDuels.push({ a, b, checkpoint: cp, phase: 'countdown', timer: 0 });
+  game.aiDuels.push({ a, b, checkpoint: cp, timer: 0 });
+  addKillFeed(null, null, `${a.name} vs ${b.name} 开始决斗！`);
 }
 
 function updateAIDuels(dt) {
@@ -1045,20 +1062,18 @@ function updateAIDuels(dt) {
     const d = game.aiDuels[i];
     if (!d.a.alive || !d.b.alive) { game.aiDuels.splice(i, 1); continue; }
     d.timer += dt;
-    if (d.phase === 'countdown') {
-      if (d.timer >= 3.6) { d.phase = 'racing'; }
-    } else if (d.phase === 'racing') {
-      const dA = Math.hypot(d.checkpoint.x - d.a.x, d.checkpoint.y - d.a.y);
-      const dB = Math.hypot(d.checkpoint.x - d.b.x, d.checkpoint.y - d.b.y);
-      if (dA < 40) { endAIDuel(d, d.a, d.b); game.aiDuels.splice(i, 1); }
-      else if (dB < 40) { endAIDuel(d, d.b, d.a); game.aiDuels.splice(i, 1); }
-    }
+    const dA = Math.hypot(d.checkpoint.x - d.a.x, d.checkpoint.y - d.a.y);
+    const dB = Math.hypot(d.checkpoint.x - d.b.x, d.checkpoint.y - d.b.y);
+    if (dA < 40) { endAIDuel(d, d.a, d.b); game.aiDuels.splice(i, 1); }
+    else if (dB < 40) { endAIDuel(d, d.b, d.a); game.aiDuels.splice(i, 1); }
+    else if (d.timer > 30) { game.aiDuels.splice(i, 1); } // 超时取消
   }
 }
 
 function endAIDuel(d, winner, loser) {
   loser.alive = false;
   winner.level = Math.min(10, winner.level + 1);
+  addKillFeed(winner, loser, '1v1');
 }
 
 let menuMode = true;
