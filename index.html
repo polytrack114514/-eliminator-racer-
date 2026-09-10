@@ -183,7 +183,7 @@
     <div class="section-label">选择地图</div>
     <div class="map-row">
       <div class="map-btn selected" data-map="field"><div class="name">田野</div><div class="desc">绿野乡村<br>树木 · 水坑 · 房屋</div></div>
-      <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州超级工厂<br>巨型工厂 · 仙人掌 · 沙地</div></div>
+      <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州超级工厂<br>巨型厂房 · 储罐 · 油渍</div></div>
     </div>
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
@@ -267,15 +267,15 @@ const MAPS = {
     seed: 20240101,
   },
   terafab: {
-    name: 'Terafab Texas', desc: '德州超级工厂',
-    ground: '#7a3a18', groundDot: 'rgba(180,90,40,0.4)',
-    roadDark: '#3a3a3a', roadLight: '#4a4a4a', roadHighway: '#5a5a5a', roadLine: '#ffd33d',
+    name: 'Terafab Texas', desc: '德州超级工厂内部',
+    ground: '#2a2e34', groundDot: 'rgba(80,90,100,0.4)',
+    roadDark: '#1a1d22', roadLight: '#22262c', roadHighway: '#2c3038', roadLine: '#ffd33d',
     houseStyle: 'factory',
     houseColors: ['#c8ccd0','#a8acb0','#9aa0a6','#b8bcc0','#8a9096'],
-    vegStyle: 'cactus',
-    vegColors: ['#5a7a2a','#4a6a1a','#6a8a3a','#3a5a1a'],
-    puddleStyle: 'sand',
-    factoryDensity: 0.92, factoryScale: 1.9, // 更密、更大的工厂
+    vegStyle: 'machine',     // 工业设备（替代植被）
+    vegColors: ['#6a7080','#5a6070','#7a8090','#4a5060','#8a90a0'],
+    puddleStyle: 'oil',      // 油渍（替代水坑/沙地）
+    factoryDensity: 0.92, factoryScale: 1.9,
     seed: 20260910,
   },
 };
@@ -985,7 +985,15 @@ function drawPuddles(x0, y0, x1, y1) {
   const t = performance.now() / 1000;
   for (const p of PUDDLES) {
     if (p.x + p.r < x0 || p.x - p.r > x1 || p.y + p.r < y0 || p.y - p.r > y1) continue;
-    if (MAP.puddleStyle === 'sand') {
+    if (MAP.puddleStyle === 'oil') {
+      // 油渍：深色虹彩
+      ctx.fillStyle = 'rgba(10,12,16,0.6)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      // 虹彩光圈
+      ctx.strokeStyle = 'rgba(120,140,200,0.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.7, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(180,120,60,0.25)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.5, 0, Math.PI * 2); ctx.stroke();
+      // 高光斑
+      ctx.fillStyle = 'rgba(200,210,255,0.18)'; ctx.beginPath(); ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.25, 0, Math.PI * 2); ctx.fill();
+    } else if (MAP.puddleStyle === 'sand') {
       // 沙地：黄褐色圆，无水波
       ctx.fillStyle = 'rgba(200,160,70,0.35)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(220,180,90,0.4)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.7, 0, Math.PI * 2); ctx.stroke();
@@ -1011,7 +1019,27 @@ function drawPuddles(x0, y0, x1, y1) {
 function drawTrees(x0, y0, x1, y1) {
   for (const t of TREES) {
     if (t.x + t.r < x0 || t.x - t.r > x1 || t.y + t.r < y0 || t.y - t.r > y1) continue;
-    if (MAP.vegStyle === 'cactus') {
+    if (MAP.vegStyle === 'machine') {
+      // 工业设备：储罐 + 管道
+      ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(t.x + 3, t.y + 3, t.r * 0.8, t.r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+      // 储罐主体
+      ctx.fillStyle = t.shade; ctx.beginPath(); ctx.ellipse(t.x, t.y, t.r * 0.7, t.r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+      // 罐顶
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(t.x, t.y - t.r * 0.4, t.r * 0.7, t.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = t.shade; ctx.fillRect(t.x - t.r * 0.7, t.y - t.r * 0.4, t.r * 1.4, t.r * 0.5);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(t.x, t.y - t.r * 0.4, t.r * 0.7, t.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+      // 高光
+      ctx.fillStyle = 'rgba(200,210,230,0.25)'; ctx.fillRect(t.x - t.r * 0.55, t.y - t.r * 0.35, 3, t.r * 0.5);
+      // 管道（左右）
+      ctx.strokeStyle = 'rgba(120,130,150,0.6)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(t.x - t.r * 0.7, t.y); ctx.lineTo(t.x - t.r * 1.3, t.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(t.x + t.r * 0.7, t.y); ctx.lineTo(t.x + t.r * 1.3, t.y); ctx.stroke();
+      // 阀门
+      ctx.fillStyle = '#cc4422'; ctx.beginPath(); ctx.arc(t.x - t.r * 1.3, t.y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#44aa66'; ctx.beginPath(); ctx.arc(t.x + t.r * 1.3, t.y, 3, 0, Math.PI * 2); ctx.fill();
+      // 警示标
+      ctx.fillStyle = '#ffd33d'; ctx.fillRect(t.x - 2, t.y + t.r * 0.1, 4, 2);
+    } else if (MAP.vegStyle === 'cactus') {
       // 仙人掌：树干色柱 + 绿色掌片
       ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(t.x + 3, t.y + 3, t.r * 0.7, t.r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
       // 主干
