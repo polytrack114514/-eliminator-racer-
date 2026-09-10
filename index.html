@@ -279,7 +279,7 @@ function randomPointOnRoad(preferType, zone) {
   return { x: 200 + Math.random()*(WORLD.w-400), y: 200 + Math.random()*(WORLD.h-400) };
 }
 
-const HOUSES = (() => {
+function generateHouses() {
   const list = [];
   const step = 625;
   for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
@@ -296,7 +296,9 @@ const HOUSES = (() => {
     }
   }
   return list;
-})();
+}
+
+let HOUSES = generateHouses();
 
 function isBlockedByHouse(x, y) {
   for (const h of HOUSES) {
@@ -315,7 +317,7 @@ function circleHitsHouse(x, y, r) {
 }
 
 // 树木：碰撞圆形
-const TREES = (() => {
+function generateTrees() {
   const list = [];
   for (let i = 0; i < 200; i++) {
     let x, y;
@@ -325,7 +327,9 @@ const TREES = (() => {
     list.push({ x, y, r: 18 + Math.random() * 12, trunk: 8 + Math.random() * 4, shade: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'][Math.floor(Math.random()*5)] });
   }
   return list;
-})();
+}
+
+let TREES = generateTrees();
 
 function circleHitsTree(x, y, r) {
   for (const t of TREES) {
@@ -334,7 +338,7 @@ function circleHitsTree(x, y, r) {
   return null;
 }
 
-const PUDDLES = (() => {
+function generatePuddles() {
   const list = [];
   for (let i = 0; i < 60; i++) {
     let x, y;
@@ -343,7 +347,9 @@ const PUDDLES = (() => {
     list.push({ x, y, r: 80 + Math.random() * 100 });
   }
   return list;
-})();
+}
+
+let PUDDLES = generatePuddles();
 
 function pointInPuddle(x, y) {
   for (const p of PUDDLES) { if (Math.hypot(x - p.x, y - p.y) < p.r) return true; }
@@ -552,6 +558,10 @@ class CarDrop {
 }
 
 function initGame() {
+  // 每局重新生成地图（房屋/树木/水坑随机分布）
+  HOUSES = generateHouses();
+  TREES = generateTrees();
+  PUDDLES = generatePuddles();
   // 显示所有 HUD 元素
   document.getElementById('hud-left').style.display = 'block';
   document.getElementById('hud-top').style.display = 'block';
@@ -696,13 +706,19 @@ function update(dt) {
   }
   const tx = WORLD.w / 2, ty = WORLD.h / 2;
   game.zone.cx += (tx - game.zone.cx) * 0.05 * dt; game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
-  // 决赛阶段毒圈已消失，不淘汰
+  // 决赛阶段毒圈已消失，不淘汰；非决赛阶段在毒圈内停留过久才淘汰
   if (!game.finalPhase) {
     for (const c of allCars) {
-      if (Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius) {
-        c.alive = false;
-        if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！');
-        else { addKillFeed(null, c, '缩圈'); }
+      const outside = Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius;
+      if (outside) {
+        c.poisonTime = (c.poisonTime || 0) + dt;
+        if (c.poisonTime >= 5) {
+          c.alive = false;
+          if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！');
+          else { addKillFeed(null, c, '缩圈'); }
+        }
+      } else {
+        c.poisonTime = 0;
       }
     }
   }
