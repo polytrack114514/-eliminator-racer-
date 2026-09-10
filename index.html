@@ -31,10 +31,18 @@
     min-width: 220px; pointer-events: none;
     display: none;
   }
-  .hp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .hp-label { font-size: 13px; color: #ff6b6b; font-weight: bold; width: 28px; }
-  .hp-bar-bg { flex: 1; height: 16px; background: #2a0a0a; border: 1px solid #4a1a1a; border-radius: 3px; overflow: hidden; }
-  #hp-fill { height: 100%; background: linear-gradient(90deg, #ff3030, #ff6b6b); transition: width 0.15s linear; }
+  @media (hover: none) and (pointer: coarse) {
+    #hud-left { top: 8px; left: 8px; padding: 6px 10px; min-width: 140px; border-radius: 6px; }
+    #hud-left .stat-row { font-size: 11px; margin-top: 2px; }
+    #hud-top { top: 8px; padding: 4px 10px; border-radius: 6px; }
+    #alive-count { font-size: 20px; }
+    #alive-label { font-size: 9px; }
+    #minimap-wrap { top: 8px; right: 8px; padding: 2px; border-radius: 4px; }
+    #minimap { width: 110px; height: 110px; }
+    #kill-feed { top: 60px; right: 8px; max-width: 160px; }
+    .kill-msg { font-size: 10px; padding: 2px 6px; }
+    #h2h-banner { top: 70px; font-size: 13px; padding: 4px 12px; }
+  }
   .stat-row { display: flex; justify-content: space-between; font-size: 13px; color: #ddd; margin-top: 3px; }
   .stat-row .val { color: #ffd33d; font-weight: bold; }
   #car-level-name { color: #6cf; }
@@ -114,14 +122,24 @@
     display: none; pointer-events: none; text-align: center; animation: cdpop 0.7s ease-out;
   }
   #touch-controls { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
-  #joystick-base { position: absolute; bottom: 30px; left: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); pointer-events: auto; touch-action: none; }
+  #joystick-base { position: absolute; bottom: 40px; left: 24px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); pointer-events: auto; touch-action: none; }
   #joystick-stick { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; border-radius: 50%; background: rgba(80,180,255,0.7); border: 2px solid rgba(255,255,255,0.6); pointer-events: none; }
   .touch-btn { position: absolute; border-radius: 50%; pointer-events: auto; touch-action: none; color: #fff; font-weight: bold; font-size: 13px; border: 2px solid rgba(255,255,255,0.5); display: flex; align-items: center; justify-content: center; user-select: none; }
   #btn-gas { bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(60,160,80,0.6); }
   #btn-brake { bottom: 140px; right: 30px; width: 60px; height: 60px; background: rgba(200,60,60,0.6); font-size: 18px; }
-  #btn-h2h { bottom: 30px; left: 50%; transform: translateX(-50%); width: 80px; height: 50px; border-radius: 25px; background: rgba(255,80,80,0.7); font-size: 12px; }
+  #btn-h2h { bottom: 230px; right: 30px; width: 60px; height: 60px; background: rgba(255,80,80,0.7); font-size: 12px; border-radius: 50%; }
   @media (hover: hover) and (pointer: fine) { #touch-controls { display: none !important; } }
-  @media (hover: none) and (pointer: coarse) { #touch-controls { display: block; } #hud-bottom { display: none; } }
+  @media (hover: none) and (pointer: coarse) {
+    #touch-controls { display: block; }
+    #hud-bottom { display: none; }
+    #h2h-banner { top: 70px; font-size: 14px; }
+    #final-banner { font-size: 28px; }
+    #countdown { font-size: 72px; }
+    #choice-panel { padding: 16px 20px; }
+    .choice-btn { width: 200px; padding: 10px; font-size: 13px; }
+    #end-screen { padding: 20px 24px; }
+    #end-screen h1 { font-size: 24px; }
+  }
   #menu {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: radial-gradient(circle at center, #1a2238 0%, #0a0a0a 70%);
@@ -159,21 +177,20 @@
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
       <kbd>W A S D</kbd> 移动 &nbsp; <kbd>SPACE</kbd> 触发 1v1<br>
-      拾取紫色车包换高级车 · 绿色修理包恢复耐久 · 碰撞掉血 · 最后存活者获胜
+      拾取紫色车包换高级车 · 最后存活者获胜
     </div>
   </div>
 
   <canvas id="game" width="320" height="558"></canvas>
 
   <div id="hud-left">
-    <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar-bg"><div id="hp-fill" style="width: 100%;"></div></div></div>
     <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2 家用轿车</span></div>
     <div class="stat-row"><span>当前速度</span><span class="val" id="speed-val">0</span></div>
   </div>
 
   <div id="hud-top"><div id="alive-count">9</div><div id="alive-label">ALIVE</div></div>
   <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
-  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 拾取绿色修理包恢复HP</div>
+  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 拾取紫色车包升级</div>
   <div id="countdown" style="display: none;">1</div>
   <div id="kill-feed"></div>
 
@@ -423,7 +440,7 @@ class Car {
   constructor(x, y, color, level, isPlayer = false) {
     this.x = x; this.y = y; this.angle = 0; this.speed = 0;
     this.color = color; this.level = level; this.isPlayer = isPlayer;
-    this.hp = 100; this.alive = true; this.name = isPlayer ? 'Player' : 'AI';
+    this.alive = true; this.name = isPlayer ? 'Player' : 'AI';
     this.w = 26; this.h = 40;
     this.aiTarget = null; this.aiTimer = 0; this.aiSeekPlayer = false; this.dropCooldown = 3;
   }
@@ -534,24 +551,6 @@ class CarDrop {
   }
 }
 
-class RepairKit {
-  constructor(x, y) { this.x = x; this.y = y; this.taken = false; this.t = 0; }
-  update(dt) { this.t += dt; }
-  draw(ctx) {
-    if (this.taken) return;
-    const pulse = 1 + Math.sin(this.t * 3) * 0.1;
-    ctx.fillStyle = 'rgba(40,200,80,0.25)'; ctx.beginPath(); ctx.arc(this.x, this.y, 28 * pulse, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(80,255,120,0.6)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.x, this.y, 26, 0, Math.PI * 2); ctx.stroke();
-    // 十字标志
-    ctx.fillStyle = '#2dd060';
-    ctx.fillRect(this.x - 14, this.y - 4, 28, 8);
-    ctx.fillRect(this.x - 4, this.y - 14, 8, 28);
-    ctx.strokeStyle = 'rgba(0,80,20,0.8)'; ctx.lineWidth = 1.5;
-    ctx.strokeRect(this.x - 14, this.y - 4, 28, 8);
-    ctx.strokeRect(this.x - 4, this.y - 14, 8, 28);
-  }
-}
-
 function initGame() {
   // 显示所有 HUD 元素
   document.getElementById('hud-left').style.display = 'block';
@@ -580,15 +579,13 @@ function initGame() {
   }
   const drops = [];
   for (let i = 0; i < 22; i++) { const p = randomPointOnRoad(null, zone); drops.push(new CarDrop(p.x, p.y)); }
-  const repairKits = [];
-  for (let i = 0; i < 12; i++) { const p = randomPointOnRoad(null, zone); repairKits.push(new RepairKit(p.x, p.y)); }
   game = {
-    player, ais, zone, drops, repairKits,
+    player, ais, zone, drops,
     allCars: () => [player, ...ais].filter(c => c.alive),
     h2h: null, h2hTimer: 0, finalPhase: false,
     finalPoint: null,
     state: 'playing', over: false, cam: { x: player.x, y: player.y },
-    dropTimer: 0, repairTimer: 0, countdownText: '', countdownTimer: 0,
+    dropTimer: 0, countdownText: '', countdownTimer: 0,
     aiDuels: [],
   };
 }
@@ -669,23 +666,15 @@ function update(dt) {
   updateAIDuels(dt);
   for (const ai of game.ais) { if (!ai.alive) continue; updateAI(ai, dt); ai.update(dt, ai._input || { forward: false, back: false, left: false, right: false }); }
   const allCars = game.allCars();
-  // 车与车碰撞掉血（基于速度差）
+  // 车与车碰撞：弹开减速（无血量系统）
   for (let i = 0; i < allCars.length; i++) {
     for (let j = i + 1; j < allCars.length; j++) {
       const a = allCars[i], b = allCars[j];
       const dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
       if (dist < 30 && dist > 0) {
-        const relSpeed = Math.abs(a.speed) + Math.abs(b.speed);
-        if (relSpeed > 30) {
-          const dmg = (relSpeed - 30) * 0.15 * dt;
-          a.hp -= dmg; b.hp -= dmg;
-          if (a.hp <= 0) { a.hp = 0; a.alive = false; if (a.isPlayer) showEndScreen(false, '车辆被撞毁！'); }
-          if (b.hp <= 0) { b.hp = 0; b.alive = false; if (b.isPlayer) showEndScreen(false, '车辆被撞毁！'); }
-          // 弹开
-          const nx = dx / dist, ny = dy / dist;
-          a.x -= nx * 2; a.y -= ny * 2; b.x += nx * 2; b.y += ny * 2;
-          a.speed *= 0.6; b.speed *= 0.6;
-        }
+        const nx = dx / dist, ny = dy / dist;
+        a.x -= nx * 4; a.y -= ny * 4; b.x += nx * 4; b.y += ny * 4;
+        a.speed *= 0.5; b.speed *= 0.5;
       }
     }
   }
@@ -696,12 +685,13 @@ function update(dt) {
   }
   const tx = WORLD.w / 2, ty = WORLD.h / 2;
   game.zone.cx += (tx - game.zone.cx) * 0.05 * dt; game.zone.cy += (ty - game.zone.cy) * 0.05 * dt;
-  // 决赛阶段毒圈已消失，不扣血
+  // 决赛阶段毒圈已消失，不淘汰
   if (!game.finalPhase) {
     for (const c of allCars) {
       if (Math.hypot(c.x - game.zone.cx, c.y - game.zone.cy) > game.zone.radius) {
-        c.hp -= 10 * dt;
-        if (c.hp <= 0) { c.hp = 0; c.alive = false; if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！'); }
+        c.alive = false;
+        if (c.isPlayer) showEndScreen(false, '你被缩圈淘汰了！');
+        else { addKillFeed(null, c, '缩圈'); }
       }
     }
   }
@@ -718,20 +708,6 @@ function update(dt) {
     }
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
-  // 修理包拾取
-  game.repairTimer += dt;
-  if (game.repairTimer > 12 && game.repairKits.filter(r => !r.taken).length < 8) {
-    game.repairTimer = 0;
-    const p = randomPointOnRoad(null, game.zone); game.repairKits.push(new RepairKit(p.x, p.y));
-  }
-  for (const kit of game.repairKits) {
-    if (kit.taken) continue; kit.update(dt);
-    for (const c of allCars) {
-      if (!c.alive) continue;
-      if (Math.hypot(c.x - kit.x, c.y - kit.y) < 30) { kit.taken = true; c.hp = Math.min(100, c.hp + 50); break; }
-    }
-  }
-  game.repairKits = game.repairKits.filter(r => !r.taken);
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
     // 终点设在安全圈外的随机方向
@@ -805,7 +781,6 @@ function render() {
   drawWorld(); drawZone();
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
-  for (const r of game.repairKits) r.draw(ctx);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
   for (const c of game.allCars()) c.draw(ctx);
   ctx.restore();
@@ -964,7 +939,6 @@ function drawAIDuelCheckpoint(cp, colorA, colorB) {
 }
 
 function drawHUD() {
-  document.getElementById('hp-fill').style.width = Math.max(0, game.player.hp) + '%';
   const lvl = game.player.level;
   document.getElementById('car-level-name').textContent = `Lv.${lvl} ${CAR_LEVELS[lvl].name}`;
   document.getElementById('speed-val').textContent = Math.round(Math.abs(game.player.speed));
@@ -979,7 +953,6 @@ function drawMinimap() {
     miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
   }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
-  for (const r of game.repairKits) { if (r.taken) continue; miniCtx.fillStyle = '#2dd060'; miniCtx.fillRect(r.x * sx - 1.5, r.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
   // 敌方雷达：只显示雷达范围内的敌人，红色脉冲点
@@ -1033,7 +1006,7 @@ function endHeadToHead(playerWon) {
     document.getElementById('choice-desc').textContent = `击败了 Lv.${h.target.level} ${CAR_LEVELS[h.target.level].name}。选择奖励：`;
     document.getElementById('choice-panel').style.display = 'block';
   } else {
-    game.player.alive = false; game.player.hp = 0;
+    game.player.alive = false;
     showEndScreen(false, '你在 1v1 中落败，被淘汰！');
   }
   game.h2h = null;
@@ -1084,7 +1057,7 @@ function updateAIDuels(dt) {
 }
 
 function endAIDuel(d, winner, loser) {
-  loser.alive = false; loser.hp = 0;
+  loser.alive = false;
   winner.level = Math.min(10, winner.level + 1);
 }
 
