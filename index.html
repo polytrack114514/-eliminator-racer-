@@ -183,7 +183,7 @@
     <div class="section-label">选择地图</div>
     <div class="map-row">
       <div class="map-btn selected" data-map="field"><div class="name">田野</div><div class="desc">绿野乡村<br>树木 · 水坑 · 房屋</div></div>
-      <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州红土荒原<br>仙人掌 · 沙地 · 工厂</div></div>
+      <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州超级工厂<br>巨型工厂 · 仙人掌 · 沙地</div></div>
     </div>
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
@@ -267,14 +267,15 @@ const MAPS = {
     seed: 20240101,
   },
   terafab: {
-    name: 'Terafab Texas', desc: '德州红土荒原',
-    ground: '#6b2a15', groundDot: 'rgba(160,80,40,0.4)',
-    roadDark: '#4a3220', roadLight: '#5a4028', roadHighway: '#6a4830', roadLine: '#d4a050',
+    name: 'Terafab Texas', desc: '德州超级工厂',
+    ground: '#7a3a18', groundDot: 'rgba(180,90,40,0.4)',
+    roadDark: '#3a3a3a', roadLight: '#4a4a4a', roadHighway: '#5a5a5a', roadLine: '#ffd33d',
     houseStyle: 'factory',
-    houseColors: ['#5a5a5a','#6a6a6a','#4a4a4a','#7a7a7a','#3a3a3a'],
+    houseColors: ['#c8ccd0','#a8acb0','#9aa0a6','#b8bcc0','#8a9096'],
     vegStyle: 'cactus',
     vegColors: ['#5a7a2a','#4a6a1a','#6a8a3a','#3a5a1a'],
     puddleStyle: 'sand',
+    factoryDensity: 0.92, factoryScale: 1.9, // 更密、更大的工厂
     seed: 20260910,
   },
 };
@@ -307,11 +308,13 @@ function loadMap(id) {
   // 建筑（房屋/工厂）
   HOUSES = [];
   const step = 625;
+  const density = MAP.factoryDensity || 0.7;
+  const scale = MAP.factoryScale || 1.0;
   for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
     for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
-      if (R() < 0.7) {
-        const w = 120 + R() * 120;
-        const h = 120 + R() * 120;
+      if (R() < density) {
+        const w = (120 + R() * 120) * scale;
+        const h = (120 + R() * 120) * scale;
         const cx = gx + (R() - 0.5) * 100;
         const cy = gy + (R() - 0.5) * 100;
         if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
@@ -934,18 +937,39 @@ function drawHouses(x0, y0, x1, y1) {
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(h.x + 4, h.y + 4, h.w, h.h);
     ctx.fillStyle = h.color; ctx.fillRect(h.x, h.y, h.w, h.h);
     if (MAP.houseStyle === 'factory') {
-      // 工厂：金属屋顶条纹 + 烟囱
-      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(h.x, h.y, h.w, Math.min(16, h.h * 0.2));
-      for (let sx = h.x + 6; sx < h.x + h.w - 6; sx += 16) {
-        ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(sx, h.y + 4, 2, h.h - 8);
+      // 超级工厂：银色金属 + 锯齿屋顶 + 蓝色发光窗格 + 太阳能板
+      // 主体
+      ctx.fillStyle = h.color; ctx.fillRect(h.x, h.y, h.w, h.h);
+      // 锯齿屋顶（屋顶条带）
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.18));
+      const segW = 28;
+      for (let sx = h.x + 4; sx < h.x + h.w - 4; sx += segW) {
+        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(sx, h.y + 2, segW * 0.5, Math.min(14, h.h * 0.15));
+        ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(sx + segW * 0.5, h.y + 2, segW * 0.5, Math.min(14, h.h * 0.15));
       }
-      // 烟囱
-      ctx.fillStyle = '#333'; ctx.fillRect(h.x + h.w * 0.7, h.y - 12, 8, 14);
-      ctx.fillStyle = 'rgba(120,120,120,0.4)'; ctx.fillRect(h.x + h.w * 0.7, h.y - 10, 8, 2);
-      // 工业窗
-      ctx.fillStyle = 'rgba(255,200,80,0.3)';
-      ctx.fillRect(h.x + 8, h.y + h.h/2 - 4, 6, 6);
-      ctx.fillRect(h.x + h.w - 14, h.y + h.h/2 - 4, 6, 6);
+      // 蓝色发光工业窗带
+      ctx.fillStyle = 'rgba(80,180,255,0.55)';
+      const winY = h.y + Math.min(28, h.h * 0.25);
+      const winH = Math.min(8, h.h * 0.08);
+      ctx.fillRect(h.x + 6, winY, h.w - 12, winH);
+      ctx.fillStyle = 'rgba(200,235,255,0.4)';
+      for (let sx = h.x + 6; sx < h.x + h.w - 12; sx += 18) ctx.fillRect(sx, winY, 10, winH);
+      // 太阳能板阵列（屋顶下半）
+      ctx.fillStyle = 'rgba(20,40,80,0.55)';
+      const pvY = h.y + h.h - Math.min(28, h.h * 0.22);
+      ctx.fillRect(h.x + 4, pvY, h.w - 8, Math.min(18, h.h * 0.15));
+      ctx.strokeStyle = 'rgba(120,180,255,0.4)'; ctx.lineWidth = 1;
+      for (let sx = h.x + 8; sx < h.x + h.w - 8; sx += 12) {
+        ctx.beginPath(); ctx.moveTo(sx, pvY); ctx.lineTo(sx, pvY + Math.min(18, h.h * 0.15)); ctx.stroke();
+      }
+      // 烟囱（大型冷却塔）
+      const stackX = h.x + h.w * 0.78;
+      ctx.fillStyle = '#777'; ctx.fillRect(stackX, h.y - 18, 12, 20);
+      ctx.fillStyle = 'rgba(180,180,180,0.5)'; ctx.fillRect(stackX, h.y - 16, 12, 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(stackX + 2, h.y - 14, 3, 14);
+      // 入口标识
+      ctx.fillStyle = 'rgba(255,210,60,0.7)';
+      ctx.fillRect(h.x + h.w * 0.4, h.y + h.h - 8, h.w * 0.2, 4);
     } else {
       // 房屋：屋顶 + 窗户
       ctx.fillStyle = '#3a2a1a'; ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.25));
