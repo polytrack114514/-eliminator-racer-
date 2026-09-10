@@ -67,6 +67,17 @@
     pointer-events: none; display: none; animation: cdpop 0.7s ease-out;
   }
   @keyframes cdpop { 0%{transform:translate(-50%,-50%) scale(2);opacity:0;} 30%{opacity:1;} 100%{transform:translate(-50%,-50%) scale(1);opacity:1;} }
+  #kill-feed {
+    position: absolute; top: 50px; right: 12px;
+    display: flex; flex-direction: column; gap: 4px;
+    pointer-events: none; z-index: 50; max-width: 260px;
+  }
+  .kill-msg {
+    background: rgba(0,0,0,0.65); border-left: 3px solid #ff4444;
+    padding: 4px 10px; border-radius: 4px; font-size: 12px; color: #ddd;
+    animation: killfade 5s ease-out forwards; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  @keyframes killfade { 0%{opacity:0;transform:translateX(20px);} 10%{opacity:1;transform:translateX(0);} 85%{opacity:1;} 100%{opacity:0;} }
   #h2h-banner {
     position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
     background: rgba(255,40,40,0.85); padding: 6px 20px; border-radius: 4px;
@@ -164,6 +175,7 @@
   <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
   <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 拾取绿色修理包恢复HP</div>
   <div id="countdown" style="display: none;">1</div>
+  <div id="kill-feed"></div>
 
   <div id="touch-controls" style="display: none;">
     <div id="joystick-base"><div id="joystick-stick" style="transform: translate(-50%, -50%);"></div></div>
@@ -411,7 +423,7 @@ class Car {
   constructor(x, y, color, level, isPlayer = false) {
     this.x = x; this.y = y; this.angle = 0; this.speed = 0;
     this.color = color; this.level = level; this.isPlayer = isPlayer;
-    this.hp = 100; this.alive = true;
+    this.hp = 100; this.alive = true; this.name = isPlayer ? 'Player' : 'AI';
     this.w = 26; this.h = 40;
     this.aiTarget = null; this.aiTimer = 0; this.aiSeekPlayer = false; this.dropCooldown = 3;
   }
@@ -482,6 +494,15 @@ class Car {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = '#000'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(String(this.level), this.x, badgeY);
+    // 车头名字标签
+    const nameY = badgeY - 14;
+    ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const nameW = ctx.measureText(this.name).width + 8;
+    ctx.fillStyle = this.isPlayer ? 'rgba(51,153,255,0.85)' : 'rgba(0,0,0,0.65)';
+    ctx.fillRect(this.x - nameW / 2, nameY - 7, nameW, 14);
+    ctx.strokeStyle = this.isPlayer ? '#6cf' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.strokeRect(this.x - nameW / 2, nameY - 7, nameW, 14);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(this.name, this.x, nameY);
     ctx.restore();
   }
 }
@@ -553,6 +574,7 @@ function initGame() {
     const lvl = Math.floor(Math.random() * 2) + 1;
     const p = randomPointOnRoad(null, zone);
     const ai = new Car(p.x, p.y, AI_COLORS[i % AI_COLORS.length], lvl, false);
+    ai.name = 'AI' + (i + 1);
     ai.angle = Math.random() * Math.PI * 2;
     ais.push(ai);
   }
@@ -591,8 +613,22 @@ function showEndScreen(win, desc) {
   const screen = document.getElementById('end-screen');
   screen.className = win ? 'win' : 'lose';
   document.getElementById('end-title').textContent = win ? 'WINNER!' : 'GAME OVER';
-  document.getElementById('end-desc').textContent = desc;
+  const totalCars = 1 + DIFFICULTY[currentDifficulty].aiCount;
+  const rank = win ? 1 : game.allCars().length + 1;
+  document.getElementById('end-desc').textContent = desc + ` 你排名第 ${rank}/${totalCars}。`;
   screen.style.display = 'block';
+}
+
+function addKillFeed(winner, loser, reason) {
+  const feed = document.getElementById('kill-feed');
+  const msg = document.createElement('div');
+  msg.className = 'kill-msg';
+  const wName = winner ? winner.name : '毒圈';
+  const lName = loser.name;
+  msg.textContent = `${wName} 淘汰了 ${lName}`;
+  feed.appendChild(msg);
+  setTimeout(() => msg.remove(), 5000);
+  while (feed.children.length > 5) feed.removeChild(feed.firstChild);
 }
 
 function update(dt) {
@@ -946,7 +982,27 @@ function drawMinimap() {
   for (const r of game.repairKits) { if (r.taken) continue; miniCtx.fillStyle = '#2dd060'; miniCtx.fillRect(r.x * sx - 1.5, r.y * sy - 1.5, 3, 3); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
-  for (const ai of game.ais) { if (!ai.alive) continue; miniCtx.fillStyle = ai.color; miniCtx.fillRect(ai.x * sx - 1, ai.y * sy - 1, 2, 2); }
+  // 敌方雷达：只显示雷达范围内的敌人，红色脉冲点
+  if (game.player.alive) {
+    const RADAR_RANGE = 1800;
+    const px = game.player.x * sx, py = game.player.y * sy;
+    const rr = RADAR_RANGE * sx;
+    // 雷达扫描圈
+    miniCtx.strokeStyle = 'rgba(255,60,60,0.35)'; miniCtx.lineWidth = 1; miniCtx.setLineDash([3, 3]);
+    miniCtx.beginPath(); miniCtx.arc(px, py, rr, 0, Math.PI * 2); miniCtx.stroke(); miniCtx.setLineDash([]);
+    miniCtx.fillStyle = 'rgba(255,40,40,0.06)'; miniCtx.beginPath(); miniCtx.arc(px, py, rr, 0, Math.PI * 2); miniCtx.fill();
+    // 范围内敌人红点
+    for (const ai of game.ais) {
+      if (!ai.alive) continue;
+      const dist = Math.hypot(ai.x - game.player.x, ai.y - game.player.y);
+      if (dist > RADAR_RANGE) continue;
+      // 1v1 对手用更亮的红
+      const isDuelTarget = game.h2h && game.h2h.target === ai;
+      miniCtx.fillStyle = isDuelTarget ? '#ff3030' : '#ff6060';
+      miniCtx.beginPath(); miniCtx.arc(ai.x * sx, ai.y * sy, isDuelTarget ? 3 : 2.2, 0, Math.PI * 2); miniCtx.fill();
+      miniCtx.strokeStyle = 'rgba(0,0,0,0.6)'; miniCtx.lineWidth = 0.5; miniCtx.stroke();
+    }
+  }
   if (game.player.alive) { miniCtx.fillStyle = '#3399ff'; miniCtx.beginPath(); miniCtx.arc(game.player.x * sx, game.player.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
   miniCtx.strokeStyle = '#444'; miniCtx.lineWidth = 1; miniCtx.strokeRect(0.5, 0.5, W - 1, H - 1);
 }
