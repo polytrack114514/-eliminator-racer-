@@ -158,6 +158,12 @@
   .diff-btn.easy .name { color: #6f6; }
   .diff-btn.normal .name { color: #ffd33d; }
   .diff-btn.hard .name { color: #ff6b6b; }
+  .map-row { display: flex; gap: 16px; margin-bottom: 28px; }
+  .map-btn { width: 180px; padding: 14px 10px; background: rgba(40,50,70,0.6); border: 2px solid rgba(120,160,200,0.4); border-radius: 10px; color: #fff; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .map-btn:hover { border-color: #6cf; background: rgba(60,80,120,0.8); transform: translateY(-3px); }
+  .map-btn.selected { border-color: #ffd33d; background: rgba(80,60,30,0.8); box-shadow: 0 0 25px rgba(255,210,60,0.5); }
+  .map-btn .name { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
+  .map-btn .desc { font-size: 10px; color: #aaa; line-height: 1.4; }
   #start-btn { padding: 16px 60px; font-size: 22px; font-weight: bold; background: linear-gradient(90deg, #ffd33d, #ff8c00); color: #1a1a1a; border: none; border-radius: 30px; cursor: pointer; transition: all 0.2s; box-shadow: 0 6px 20px rgba(255,180,0,0.4); letter-spacing: 2px; }
   #start-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(255,180,0,0.6); }
   #menu .tips { margin-top: 28px; font-size: 12px; color: #555; text-align: center; line-height: 1.6; }
@@ -173,6 +179,11 @@
       <div class="diff-btn easy selected" data-diff="easy"><div class="name">简单</div><div class="desc">AI 较少且迟钝<br>缩圈缓慢</div></div>
       <div class="diff-btn normal" data-diff="normal"><div class="name">普通</div><div class="desc">AI 数量与速度均衡<br>标准缩圈</div></div>
       <div class="diff-btn hard" data-diff="hard"><div class="name">困难</div><div class="desc">AI 多且凶猛<br>缩圈迅猛</div></div>
+    </div>
+    <div class="section-label">选择地图</div>
+    <div class="map-row">
+      <div class="map-btn selected" data-map="field"><div class="name">田野</div><div class="desc">绿野乡村<br>树木 · 水坑 · 房屋</div></div>
+      <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州红土荒原<br>仙人掌 · 沙地 · 工厂</div></div>
     </div>
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
@@ -231,22 +242,121 @@ const WORLD = { w: 20000, h: 20000 };
 const CAM_ZOOM = 0.4;
 const TILE = 80;
 
-const ROADS = (() => {
-  const list = [];
-  list.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 120, type: 'highway' });
-  list.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 120, type: 'highway' });
-  list.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 80, type: 'highway' });
-  list.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 80, type: 'highway' });
+// ===== 种子随机（保证每局地图固定） =====
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = seed;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ===== 地图配置 =====
+const MAPS = {
+  field: {
+    name: '田野', desc: '绿野乡村',
+    ground: '#1d2a1d', groundDot: 'rgba(60,80,60,0.4)',
+    roadDark: '#2e2e2e', roadLight: '#3a3a3a', roadHighway: '#4a4a4a', roadLine: '#ffcc00',
+    houseStyle: 'house',
+    houseColors: ['#5b4636','#6b5b4a','#7a6b5a','#4a3b2c','#8a7a6a'],
+    vegStyle: 'tree',
+    vegColors: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'],
+    puddleStyle: 'water',
+    seed: 20240101,
+  },
+  terafab: {
+    name: 'Terafab Texas', desc: '德州红土荒原',
+    ground: '#6b2a15', groundDot: 'rgba(160,80,40,0.4)',
+    roadDark: '#4a3220', roadLight: '#5a4028', roadHighway: '#6a4830', roadLine: '#d4a050',
+    houseStyle: 'factory',
+    houseColors: ['#5a5a5a','#6a6a6a','#4a4a4a','#7a7a7a','#3a3a3a'],
+    vegStyle: 'cactus',
+    vegColors: ['#5a7a2a','#4a6a1a','#6a8a3a','#3a5a1a'],
+    puddleStyle: 'sand',
+    seed: 20260910,
+  },
+};
+
+let currentMapId = 'field';
+let MAP = MAPS.field;
+let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [];
+
+function loadMap(id) {
+  currentMapId = id;
+  MAP = MAPS[id];
+  const rng = mulberry32(MAP.seed);
+  const R = () => rng();
+
+  // 道路网格（所有地图结构相同）
+  ROADS = [];
+  ROADS.push({ x1: 0, y1: WORLD.h/2, x2: WORLD.w, y2: WORLD.h/2, w: 120, type: 'highway' });
+  ROADS.push({ x1: WORLD.w/2, y1: 0, x2: WORLD.w/2, y2: WORLD.h, w: 120, type: 'highway' });
+  ROADS.push({ x1: 0, y1: 0, x2: WORLD.w, y2: WORLD.h, w: 80, type: 'highway' });
+  ROADS.push({ x1: WORLD.w, y1: 0, x2: 0, y2: WORLD.h, w: 80, type: 'highway' });
   for (let y = 1250; y < WORLD.h; y += 1250) {
     if (Math.abs(y - WORLD.h/2) < 60) continue;
-    list.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 55, type: 'local' });
+    ROADS.push({ x1: 0, y1: y, x2: WORLD.w, y2: y, w: 55, type: 'local' });
   }
   for (let x = 1250; x < WORLD.w; x += 1250) {
     if (Math.abs(x - WORLD.w/2) < 60) continue;
-    list.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 55, type: 'local' });
+    ROADS.push({ x1: x, y1: 0, x2: x, y2: WORLD.h, w: 55, type: 'local' });
   }
-  return list;
-})();
+
+  // 建筑（房屋/工厂）
+  HOUSES = [];
+  const step = 625;
+  for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
+    for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
+      if (R() < 0.7) {
+        const w = 120 + R() * 120;
+        const h = 120 + R() * 120;
+        const cx = gx + (R() - 0.5) * 100;
+        const cy = gy + (R() - 0.5) * 100;
+        if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
+        if (Math.abs(cy - cx) < 90 || Math.abs(cy - (WORLD.w - cx)) < 90) continue;
+        HOUSES.push({ x: cx - w/2, y: cy - h/2, w, h, color: MAP.houseColors[Math.floor(R()*MAP.houseColors.length)] });
+      }
+    }
+  }
+
+  // 植被（树木/仙人掌）
+  TREES = [];
+  for (let i = 0; i < 200; i++) {
+    let x, y;
+    if (R() < 0.5) {
+      const rd = ROADS[Math.floor(R() * ROADS.length)];
+      const t = 0.1 + R() * 0.8;
+      x = rd.x1 + (rd.x2 - rd.x1) * t + (R()-0.5) * rd.w * 0.6;
+      y = rd.y1 + (rd.y2 - rd.y1) * t + (R()-0.5) * rd.w * 0.6;
+    } else {
+      x = 200 + R() * (WORLD.w - 400); y = 200 + R() * (WORLD.h - 400);
+    }
+    if (x < 200 || x > WORLD.w-200 || y < 200 || y > WORLD.h-200) continue;
+    let blocked = false;
+    for (const h of HOUSES) { if (x > h.x - 30 && x < h.x + h.w + 30 && y > h.y - 30 && y < h.y + h.h + 30) { blocked = true; break; } }
+    if (blocked) continue;
+    TREES.push({ x, y, r: 18 + R() * 12, trunk: 8 + R() * 4, shade: MAP.vegColors[Math.floor(R()*MAP.vegColors.length)] });
+  }
+
+  // 地表（水坑/沙地）
+  PUDDLES = [];
+  for (let i = 0; i < 60; i++) {
+    let x, y;
+    if (R() < 0.5) {
+      const rd = ROADS[Math.floor(R() * ROADS.length)];
+      const t = 0.1 + R() * 0.8;
+      x = rd.x1 + (rd.x2 - rd.x1) * t + (R()-0.5) * rd.w * 0.6;
+      y = rd.y1 + (rd.y2 - rd.y1) * t + (R()-0.5) * rd.w * 0.6;
+    } else {
+      x = 200 + R() * (WORLD.w - 400); y = 200 + R() * (WORLD.h - 400);
+    }
+    PUDDLES.push({ x, y, r: 80 + R() * 100 });
+  }
+}
+
+loadMap('field'); // 初始化默认地图
 
 function pointOnRoad(x, y) {
   for (const r of ROADS) {
@@ -273,32 +383,13 @@ function randomPointOnRoad(preferType, zone) {
       const dz = Math.hypot(x - zone.cx, y - zone.cy);
       if (dz > zone.radius * 0.85) continue;
     }
-    if (isBlockedByHouse(x, y)) continue;
+    let blocked = false;
+    for (const h of HOUSES) { if (x > h.x - 30 && x < h.x + h.w + 30 && y > h.y - 30 && y < h.y + h.h + 30) { blocked = true; break; } }
+    if (blocked) continue;
     return { x, y };
   }
   return { x: 200 + Math.random()*(WORLD.w-400), y: 200 + Math.random()*(WORLD.h-400) };
 }
-
-function generateHouses() {
-  const list = [];
-  const step = 625;
-  for (let gx = step; gx < WORLD.w - 200; gx += 1250) {
-    for (let gy = step; gy < WORLD.h - 200; gy += 1250) {
-      if (Math.random() < 0.7) {
-        const w = 120 + Math.random() * 120;
-        const h = 120 + Math.random() * 120;
-        const cx = gx + (Math.random() - 0.5) * 100;
-        const cy = gy + (Math.random() - 0.5) * 100;
-        if (Math.abs(cy - WORLD.h/2) < 100 || Math.abs(cx - WORLD.w/2) < 100) continue;
-        if (Math.abs(cy - cx) < 90 || Math.abs(cy - (WORLD.w - cx)) < 90) continue;
-        list.push({ x: cx - w/2, y: cy - h/2, w, h, color: ['#5b4636','#6b5b4a','#7a6b5a','#4a3b2c','#8a7a6a'][Math.floor(Math.random()*5)] });
-      }
-    }
-  }
-  return list;
-}
-
-let HOUSES = generateHouses();
 
 function isBlockedByHouse(x, y) {
   for (const h of HOUSES) {
@@ -316,40 +407,12 @@ function circleHitsHouse(x, y, r) {
   return null;
 }
 
-// 树木：碰撞圆形
-function generateTrees() {
-  const list = [];
-  for (let i = 0; i < 200; i++) {
-    let x, y;
-    if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
-    else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
-    if (isBlockedByHouse(x, y)) continue;
-    list.push({ x, y, r: 18 + Math.random() * 12, trunk: 8 + Math.random() * 4, shade: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'][Math.floor(Math.random()*5)] });
-  }
-  return list;
-}
-
-let TREES = generateTrees();
-
 function circleHitsTree(x, y, r) {
   for (const t of TREES) {
     if (Math.hypot(x - t.x, y - t.y) < r + t.trunk) return t;
   }
   return null;
 }
-
-function generatePuddles() {
-  const list = [];
-  for (let i = 0; i < 60; i++) {
-    let x, y;
-    if (Math.random() < 0.5) { const p = randomPointOnRoad(); x = p.x; y = p.y; }
-    else { x = 200 + Math.random() * (WORLD.w - 400); y = 200 + Math.random() * (WORLD.h - 400); }
-    list.push({ x, y, r: 80 + Math.random() * 100 });
-  }
-  return list;
-}
-
-let PUDDLES = generatePuddles();
 
 function pointInPuddle(x, y) {
   for (const p of PUDDLES) { if (Math.hypot(x - p.x, y - p.y) < p.r) return true; }
@@ -558,10 +621,8 @@ class CarDrop {
 }
 
 function initGame() {
-  // 每局重新生成地图（房屋/树木/水坑随机分布）
-  HOUSES = generateHouses();
-  TREES = generateTrees();
-  PUDDLES = generatePuddles();
+  // 根据选择的地图生成固定布局
+  loadMap(currentMapId);
   // 显示所有 HUD 元素
   document.getElementById('hud-left').style.display = 'block';
   document.getElementById('hud-top').style.display = 'block';
@@ -855,8 +916,8 @@ function drawWorld() {
   const halfW = canvas.width / 2 / CAM_ZOOM + TILE, halfH = canvas.height / 2 / CAM_ZOOM + TILE;
   const x0 = Math.max(0, game.cam.x - halfW), y0 = Math.max(0, game.cam.y - halfH);
   const x1 = Math.min(WORLD.w, game.cam.x + halfW), y1 = Math.min(WORLD.h, game.cam.y + halfH);
-  ctx.fillStyle = '#1d2a1d'; ctx.fillRect(0, 0, WORLD.w, WORLD.h);
-  ctx.fillStyle = 'rgba(60,80,60,0.4)';
+  ctx.fillStyle = MAP.ground; ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+  ctx.fillStyle = MAP.groundDot;
   for (let gx = Math.floor(x0/100)*100; gx <= x1; gx += 100) {
     for (let gy = Math.floor(y0/100)*100; gy <= y1; gy += 100) {
       const h = ((gx * 73856093) ^ (gy * 19349663)) >>> 0;
@@ -872,10 +933,26 @@ function drawHouses(x0, y0, x1, y1) {
     if (h.x + h.w < x0 || h.x > x1 || h.y + h.h < y0 || h.y > y1) continue;
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(h.x + 4, h.y + 4, h.w, h.h);
     ctx.fillStyle = h.color; ctx.fillRect(h.x, h.y, h.w, h.h);
-    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.25));
-    ctx.fillStyle = 'rgba(255,230,150,0.6)';
-    ctx.fillRect(h.x + 10, h.y + h.h/2 - 4, 8, 8);
-    ctx.fillRect(h.x + h.w - 18, h.y + h.h/2 - 4, 8, 8);
+    if (MAP.houseStyle === 'factory') {
+      // 工厂：金属屋顶条纹 + 烟囱
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(h.x, h.y, h.w, Math.min(16, h.h * 0.2));
+      for (let sx = h.x + 6; sx < h.x + h.w - 6; sx += 16) {
+        ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(sx, h.y + 4, 2, h.h - 8);
+      }
+      // 烟囱
+      ctx.fillStyle = '#333'; ctx.fillRect(h.x + h.w * 0.7, h.y - 12, 8, 14);
+      ctx.fillStyle = 'rgba(120,120,120,0.4)'; ctx.fillRect(h.x + h.w * 0.7, h.y - 10, 8, 2);
+      // 工业窗
+      ctx.fillStyle = 'rgba(255,200,80,0.3)';
+      ctx.fillRect(h.x + 8, h.y + h.h/2 - 4, 6, 6);
+      ctx.fillRect(h.x + h.w - 14, h.y + h.h/2 - 4, 6, 6);
+    } else {
+      // 房屋：屋顶 + 窗户
+      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(h.x, h.y, h.w, Math.min(20, h.h * 0.25));
+      ctx.fillStyle = 'rgba(255,230,150,0.6)';
+      ctx.fillRect(h.x + 10, h.y + h.h/2 - 4, 8, 8);
+      ctx.fillRect(h.x + h.w - 18, h.y + h.h/2 - 4, 8, 8);
+    }
     ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.5; ctx.strokeRect(h.x, h.y, h.w, h.h);
   }
 }
@@ -884,38 +961,66 @@ function drawPuddles(x0, y0, x1, y1) {
   const t = performance.now() / 1000;
   for (const p of PUDDLES) {
     if (p.x + p.r < x0 || p.x - p.r > x1 || p.y + p.r < y0 || p.y - p.r > y1) continue;
-    ctx.fillStyle = 'rgba(40,60,90,0.55)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-    for (let i = 0; i < 2; i++) {
-      const r = (t * 15 + i * 15) % p.r;
-      ctx.strokeStyle = `rgba(150,200,255,${0.3 * (1 - r/p.r)})`; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    if (MAP.puddleStyle === 'sand') {
+      // 沙地：黄褐色圆，无水波
+      ctx.fillStyle = 'rgba(200,160,70,0.35)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(220,180,90,0.4)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.7, 0, Math.PI * 2); ctx.stroke();
+      // 沙粒纹理
+      ctx.fillStyle = 'rgba(240,210,120,0.2)';
+      for (let i = 0; i < 4; i++) {
+        const a = i * 1.57 + t * 0.2;
+        ctx.beginPath(); ctx.arc(p.x + Math.cos(a) * p.r * 0.4, p.y + Math.sin(a) * p.r * 0.4, 3, 0, Math.PI * 2); ctx.fill();
+      }
+    } else {
+      // 水坑：蓝色 + 涟漪
+      ctx.fillStyle = 'rgba(40,60,90,0.55)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 2; i++) {
+        const r = (t * 15 + i * 15) % p.r;
+        ctx.strokeStyle = `rgba(150,200,255,${0.3 * (1 - r/p.r)})`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(200,230,255,0.25)'; ctx.beginPath(); ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.3, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.fillStyle = 'rgba(200,230,255,0.25)'; ctx.beginPath(); ctx.arc(p.x - p.r*0.3, p.y - p.r*0.3, p.r*0.3, 0, Math.PI * 2); ctx.fill();
   }
 }
 
 function drawTrees(x0, y0, x1, y1) {
   for (const t of TREES) {
     if (t.x + t.r < x0 || t.x - t.r > x1 || t.y + t.r < y0 || t.y - t.r > y1) continue;
-    // 树荫
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(t.x + 4, t.y + 4, t.r, t.r * 0.85, 0, 0, Math.PI * 2); ctx.fill();
-    // 树冠
-    ctx.fillStyle = t.shade; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
-    // 高光
-    ctx.fillStyle = 'rgba(100,180,100,0.3)'; ctx.beginPath(); ctx.arc(t.x - t.r*0.3, t.y - t.r*0.3, t.r*0.5, 0, Math.PI * 2); ctx.fill();
-    // 树干
-    ctx.fillStyle = '#4a3a1a'; ctx.fillRect(t.x - t.trunk/2, t.y - t.trunk/2, t.trunk, t.trunk);
+    if (MAP.vegStyle === 'cactus') {
+      // 仙人掌：树干色柱 + 绿色掌片
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(t.x + 3, t.y + 3, t.r * 0.7, t.r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+      // 主干
+      ctx.fillStyle = t.shade; ctx.fillRect(t.x - 4, t.y - t.r, 8, t.r * 2);
+      // 左臂
+      ctx.fillRect(t.x - 14, t.y - t.r * 0.3, 10, 6);
+      ctx.fillRect(t.x - 14, t.y - t.r * 0.3, 6, 14);
+      // 右臂
+      ctx.fillRect(t.x + 4, t.y - t.r * 0.5, 10, 6);
+      ctx.fillRect(t.x + 8, t.y - t.r * 0.5, 6, 14);
+      // 高光
+      ctx.fillStyle = 'rgba(180,220,100,0.3)'; ctx.fillRect(t.x - 3, t.y - t.r + 2, 2, t.r * 2 - 4);
+      // 刺
+      ctx.fillStyle = 'rgba(255,255,200,0.4)';
+      for (let i = 0; i < 3; i++) { ctx.fillRect(t.x - 1, t.y - t.r + i * t.r * 0.6, 2, 1); }
+    } else {
+      // 树木
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(t.x + 4, t.y + 4, t.r, t.r * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = t.shade; ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(100,180,100,0.3)'; ctx.beginPath(); ctx.arc(t.x - t.r*0.3, t.y - t.r*0.3, t.r*0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#4a3a1a'; ctx.fillRect(t.x - t.trunk/2, t.y - t.trunk/2, t.trunk, t.trunk);
+    }
   }
 }
 
 function drawRoads(x0, y0, x1, y1) {
   for (const r of ROADS) {
     const isHighway = r.type === 'highway';
-    ctx.strokeStyle = isHighway ? '#3a3a3a' : '#2e2e2e'; ctx.lineWidth = r.w + 8; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
-    ctx.strokeStyle = isHighway ? '#4a4a4a' : '#3a3a3a'; ctx.lineWidth = r.w; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
-    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = isHighway ? 3 : 2; ctx.setLineDash(isHighway ? [20, 12] : [10, 8]);
+    ctx.strokeStyle = MAP.roadDark; ctx.lineWidth = r.w + 8; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+    ctx.strokeStyle = isHighway ? MAP.roadHighway : MAP.roadLight; ctx.lineWidth = r.w; ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+    ctx.strokeStyle = MAP.roadLine; ctx.lineWidth = isHighway ? 3 : 2; ctx.setLineDash(isHighway ? [20, 12] : [10, 8]);
     ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
     const dx = r.x2 - r.x1, dy = r.y2 - r.y1, len = Math.hypot(dx, dy);
     if (len > 0) {
       const nx = -dy / len, ny = dx / len, off = r.w / 2 - 2;
@@ -1097,6 +1202,12 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected'); currentDifficulty = btn.dataset.diff;
+  });
+});
+document.querySelectorAll('.map-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.map-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected'); currentMapId = btn.dataset.map;
   });
 });
 document.getElementById('start-btn').addEventListener('click', () => {
