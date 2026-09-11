@@ -601,8 +601,22 @@ class Car {
     }
     let speedMul = 1;
     if (pointInPuddle(this.x, this.y)) { speedMul = 0.45; this.speed *= 0.97; }
-    // 天气：雨天打滑（转向迟钝 + 轻微减速）
-    if (game.weather === 'rain') { speedMul *= 0.85; if (Math.abs(this.speed) > 5 && Math.random() < 0.02) this.angle += (Math.random() - 0.5) * 0.3; }
+    // 天气影响增强
+    if (game.weather === 'rain') {
+      speedMul *= 0.8;
+      if (Math.abs(this.speed) > 5 && Math.random() < 0.03) this.angle += (Math.random() - 0.5) * 0.4;
+    } else if (game.weather === 'storm') {
+      // 沙尘暴：速度大幅下降 + 横向风扰动
+      speedMul *= 0.7;
+      if (Math.abs(this.speed) > 3 && Math.random() < 0.05) this.angle += (Math.random() - 0.5) * 0.35;
+    } else if (game.weather === 'hail') {
+      // 冰雹：打滑 + 偶尔减速冲击
+      speedMul *= 0.85;
+      if (Math.abs(this.speed) > 5 && Math.random() < 0.04) {
+        this.angle += (Math.random() - 0.5) * 0.3;
+        this.speed *= 0.9; // 冰雹冲击减速
+      }
+    }
     const vx = Math.cos(this.angle) * this.speed * speedMul;
     const vy = Math.sin(this.angle) * this.speed * speedMul;
     const oldX = this.x, oldY = this.y;
@@ -1170,25 +1184,39 @@ function update(dt) {
   // ===== 天气系统 =====
   game.weatherTimer -= dt;
   if (game.weatherTimer <= 0) {
-    const weathers = ['clear', 'rain', 'fog', 'night'];
+    const weathers = ['clear', 'rain', 'fog', 'night', 'storm', 'hail'];
     let next; do { next = weathers[Math.floor(Math.random() * weathers.length)]; } while (next === game.weather);
     game.weather = next;
-    game.weatherTimer = 35 + Math.random() * 25;
+    game.weatherTimer = 30 + Math.random() * 20;
     game.weatherTransition = 2; // 2秒过渡
-    const wnames = { clear: '天气放晴', rain: '天降暴雨，路面湿滑！', fog: '浓雾弥漫，视野受限！', night: '夜幕降临，开启车灯！' };
+    const wnames = { clear: '天气放晴', rain: '暴雨倾盆，路面湿滑打滑！', fog: '浓雾弥漫，视野受限！', night: '夜幕降临，开启车灯！', storm: '沙尘暴来袭，视线模糊！', hail: '冰雹袭击，路面打滑！' };
     addKillFeed(null, null, wnames[next]);
+    // 冰雹粒子初始化
+    if (next === 'hail') {
+      game.hailStones = [];
+      for (let i = 0; i < 80; i++) game.hailStones.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, vy: 500 + Math.random() * 400, size: 1.5 + Math.random() * 2 });
+    } else {
+      game.hailStones = [];
+    }
   }
   if (game.weatherTransition > 0) game.weatherTransition -= dt;
   // 雨滴粒子
   if (game.weather === 'rain') {
-    if (game.rainDrops.length < 120) {
-      for (let i = 0; i < 3; i++) game.rainDrops.push({ x: Math.random() * canvas.width, y: -10, vy: 600 + Math.random() * 300, len: 8 + Math.random() * 6 });
+    if (game.rainDrops.length < 150) {
+      for (let i = 0; i < 4; i++) game.rainDrops.push({ x: Math.random() * canvas.width, y: -10, vy: 600 + Math.random() * 400, len: 10 + Math.random() * 8 });
     }
   }
   for (let i = game.rainDrops.length - 1; i >= 0; i--) {
     const r = game.rainDrops[i];
     r.y += r.vy * dt;
     if (r.y > canvas.height + 20) { if (game.weather === 'rain') { r.y = -10; r.x = Math.random() * canvas.width; } else game.rainDrops.splice(i, 1); }
+  }
+  // 冰雹粒子更新
+  if (game.weather === 'hail' && game.hailStones) {
+    for (const h of game.hailStones) {
+      h.y += h.vy * dt;
+      if (h.y > canvas.height + 10) { h.y = -10; h.x = Math.random() * canvas.width; }
+    }
   }
 
   if (!game.finalPhase && allCars.length <= 5) {
@@ -1319,27 +1347,62 @@ function drawHeadlights() {
 function drawWeatherOverlay() {
   const trans = game.weatherTransition > 0 ? (2 - game.weatherTransition) / 2 : 1;
   if (game.weather === 'rain') {
-    // 雨幕
-    ctx.fillStyle = `rgba(40,60,90,${0.15 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 雨滴
-    ctx.strokeStyle = `rgba(180,200,230,${0.6 * trans})`; ctx.lineWidth = 1;
+    // 雨幕（增强）
+    ctx.fillStyle = `rgba(40,60,90,${0.2 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = `rgba(180,200,230,${0.7 * trans})`; ctx.lineWidth = 1.5;
     for (const r of game.rainDrops) {
-      ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x - 2, r.y + r.len); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x - 3, r.y + r.len); ctx.stroke();
+    }
+    // 偶发闪电
+    if (Math.random() < 0.005) {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
   } else if (game.weather === 'fog') {
-    // 雾气覆盖（视野缩短）
-    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 50, canvas.width/2, canvas.height/2, canvas.width * 0.5);
+    // 雾气覆盖（视野更短）
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 30, canvas.width/2, canvas.height/2, canvas.width * 0.4);
     grad.addColorStop(0, 'rgba(200,200,210,0)');
-    grad.addColorStop(0.4, `rgba(200,200,210,${0.2 * trans})`);
-    grad.addColorStop(1, `rgba(180,180,200,${0.75 * trans})`);
+    grad.addColorStop(0.3, `rgba(200,200,210,${0.3 * trans})`);
+    grad.addColorStop(1, `rgba(180,180,200,${0.85 * trans})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
   } else if (game.weather === 'night') {
-    // 夜晚黑暗
-    ctx.fillStyle = `rgba(5,10,25,${0.65 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 玩家周围微光（环境光）
-    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, 150);
-    grad.addColorStop(0, `rgba(100,120,160,${0.2 * trans})`);
+    // 夜晚黑暗（更黑）
+    ctx.fillStyle = `rgba(5,10,25,${0.75 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 玩家周围微光
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, 130);
+    grad.addColorStop(0, `rgba(100,120,160,${0.25 * trans})`);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else if (game.weather === 'storm') {
+    // 沙尘暴：黄褐色覆盖 + 横向飞沙粒子 + 强烈模糊
+    ctx.fillStyle = `rgba(150,100,40,${0.4 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `rgba(180,130,60,${0.25 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 飞沙粒子
+    const t = performance.now() / 1000;
+    ctx.fillStyle = `rgba(200,160,80,${0.6 * trans})`;
+    for (let i = 0; i < 80; i++) {
+      const px = (i * 137 + t * 300) % canvas.width;
+      const py = (i * 73 + t * 80) % canvas.height;
+      ctx.fillRect(px, py, 3, 1.5);
+    }
+    // 边缘暗角
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.width*0.2, canvas.width/2, canvas.height/2, canvas.width*0.6);
+    grad.addColorStop(0, 'rgba(100,60,20,0)');
+    grad.addColorStop(1, `rgba(80,50,10,${0.5 * trans})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else if (game.weather === 'hail') {
+    // 冰雹：冷色调覆盖 + 冰雹粒子 + 积水反光
+    ctx.fillStyle = `rgba(60,80,100,${0.18 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 冰雹粒子
+    ctx.fillStyle = `rgba(220,230,240,${0.9 * trans})`;
+    if (game.hailStones) {
+      for (const h of game.hailStones) {
+        ctx.beginPath(); ctx.arc(h.x, h.y, h.size, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    // 地面湿滑反光
+    const grad = ctx.createLinearGradient(0, canvas.height * 0.6, 0, canvas.height);
+    grad.addColorStop(0, 'rgba(100,130,160,0)');
+    grad.addColorStop(1, `rgba(120,150,180,${0.15 * trans})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 }
@@ -1791,9 +1854,9 @@ function drawHUD() {
   document.getElementById('time-val').textContent = fmtTime(game.elapsed);
   document.getElementById('alive-count').textContent = game.allCars().length;
   // 天气标识（右上角 minimap 下方）
-  const wIcons = { clear: '☀', rain: '🌧', fog: '🌫', night: '🌙' };
-  const wNames = { clear: '晴朗', rain: '暴雨', fog: '浓雾', night: '夜晚' };
-  const wColor = { clear: '#ffd33d', rain: '#6090ff', fog: '#a0a0b0', night: '#4060a0' };
+  const wIcons = { clear: '☀', rain: '🌧', fog: '🌫', night: '🌙', storm: '🌪', hail: '❄' };
+  const wNames = { clear: '晴朗', rain: '暴雨', fog: '浓雾', night: '夜晚', storm: '沙尘暴', hail: '冰雹' };
+  const wColor = { clear: '#ffd33d', rain: '#6090ff', fog: '#a0a0b0', night: '#4060a0', storm: '#c08040', hail: '#a0c0e0' };
   ctx.save();
   ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
