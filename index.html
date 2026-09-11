@@ -264,9 +264,10 @@ const MAPS = {
     vegStyle: 'tree',
     vegColors: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'],
     puddleStyle: 'water',
+    obstacleStyle: 'rural',   // 路障样式：路障锥、木桶、石墩
     seed: 20240101,
-    zoneCenter: { x: WORLD.w * 0.5, y: WORLD.h * 0.5 },          // 固定安全圈中心
-    finalPoint: { x: WORLD.w * 0.78, y: WORLD.h * 0.22 },        // 固定决赛终点（东北）
+    zoneCenter: { x: WORLD.w * 0.5, y: WORLD.h * 0.5 },
+    finalPoint: { x: WORLD.w * 0.78, y: WORLD.h * 0.22 },
   },
   terafab: {
     name: 'Terafab Texas', desc: '德州超级工厂',
@@ -277,16 +278,17 @@ const MAPS = {
     vegStyle: 'spire',
     vegColors: ['#7a8290','#6a7280','#8a92a0','#5a6270'],
     puddleStyle: 'reflection',
+    obstacleStyle: 'tech',   // 路障样式：能量护栏、激光柱、磁箱
     factoryDensity: 0.55, factoryScale: 2.8,
     seed: 20260910,
     zoneCenter: { x: WORLD.w * 0.5, y: WORLD.h * 0.5 },
-    finalPoint: { x: WORLD.w * 0.22, y: WORLD.h * 0.78 },        // 固定决赛终点（西南，与田野对称）
+    finalPoint: { x: WORLD.w * 0.22, y: WORLD.h * 0.78 },
   },
 };
 
 let currentMapId = 'field';
 let MAP = MAPS.field;
-let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [];
+let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [], OBSTACLES = [];
 
 function loadMap(id) {
   currentMapId = id;
@@ -361,6 +363,34 @@ function loadMap(id) {
     }
     PUDDLES.push({ x, y, r: 80 + R() * 100 });
   }
+
+  // 障碍物（路障/护栏/集装箱）——可撞飞但减速，不致死
+  OBSTACLES = [];
+  const obstacleTypes = MAP.obstacleStyle === 'tech'
+    ? ['barrier','cone','crate','barrier','barrier']   // tech 偏多能量护栏
+    : ['barrier','cone','crate','barrel','barrel'];     // rural 偏多木桶石墩
+  for (let i = 0; i < 280; i++) {
+    let x, y;
+    // 一半沿路放置（形成路障），一半散布
+    if (R() < 0.55) {
+      const rd = ROADS[Math.floor(R() * ROADS.length)];
+      const t = 0.05 + R() * 0.9;
+      x = rd.x1 + (rd.x2 - rd.x1) * t + (R()-0.5) * rd.w * 0.8;
+      y = rd.y1 + (rd.y2 - rd.y1) * t + (R()-0.5) * rd.w * 0.8;
+    } else {
+      x = 150 + R() * (WORLD.w - 300); y = 150 + R() * (WORLD.h - 300);
+    }
+    if (x < 150 || x > WORLD.w-150 || y < 150 || y > WORLD.h-150) continue;
+    let blocked = false;
+    for (const h of HOUSES) { if (x > h.x - 40 && x < h.x + h.w + 40 && y > h.y - 40 && y < h.y + h.h + 40) { blocked = true; break; } }
+    if (blocked) continue;
+    for (const t of TREES) { if (Math.hypot(x - t.x, y - t.y) < t.r + 25) { blocked = true; break; } }
+    if (blocked) continue;
+    for (const o of OBSTACLES) { if (Math.hypot(x - o.x, y - o.y) < 30) { blocked = true; break; } }
+    if (blocked) continue;
+    const type = obstacleTypes[Math.floor(R() * obstacleTypes.length)];
+    OBSTACLES.push({ x, y, type, r: 14, hp: 2, knocked: false, angle: R() * Math.PI * 2, vx: 0, vy: 0 });
+  }
 }
 
 loadMap('field'); // 初始化默认地图
@@ -419,6 +449,36 @@ function circleHitsTree(x, y, r) {
     if (Math.hypot(x - t.x, y - t.y) < r + t.trunk) return t;
   }
   return null;
+}
+
+// 障碍物碰撞：返回被撞障碍物，会把它撞飞（knocked）并使其获得速度
+function collideWithObstacle(car) {
+  for (const o of OBSTACLES) {
+    if (o.knocked) continue;
+    const d = Math.hypot(car.x - o.x, car.y - o.y);
+    if (d < 18 + o.r) {
+      o.knocked = true;
+      o.hp -= 1;
+      // 障碍物沿车前进方向被撞飞
+      const ang = Math.atan2(o.y - car.y, o.x - car.x);
+      const force = Math.max(80, Math.abs(car.speed) * 1.2);
+      o.vx = Math.cos(ang) * force;
+      o.vy = Math.sin(ang) * force;
+      o.angle = ang;
+      return o;
+    }
+  }
+  return null;
+}
+
+function updateObstacles(dt) {
+  for (const o of OBSTACLES) {
+    if (!o.knocked) continue;
+    o.x += o.vx * dt; o.y += o.vy * dt;
+    o.vx *= 0.92; o.vy *= 0.92;
+    o.angle += dt * 8;
+    if (Math.hypot(o.vx, o.vy) < 5) { o.vx = 0; o.vy = 0; }
+  }
 }
 
 function pointInPuddle(x, y) {
@@ -553,6 +613,9 @@ class Car {
     if (hitTree) {
       this.x = oldX; this.y = oldY; this.speed *= 0.4;
     }
+    // 障碍物：撞飞但不致死（车减速，障碍物获得飞出速度）
+    const hitObs = collideWithObstacle(this);
+    if (hitObs) { this.speed *= 0.55; }
     const margin = 20;
     if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
     if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
@@ -803,6 +866,7 @@ function update(dt) {
     }
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
+  updateObstacles(dt);
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
     // 终点使用地图固定坐标（每局一致）
@@ -926,7 +990,7 @@ function drawWorld() {
       ctx.fillRect(gx + (h % 60) - 30, gy + ((h >> 8) % 60) - 30, 2, 2);
     }
   }
-  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1);
+  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1); drawObstacles(x0, y0, x1, y1);
   ctx.strokeStyle = '#ff5252'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
 }
 
@@ -1183,6 +1247,58 @@ function drawTrees(x0, y0, x1, y1) {
       ctx.fillStyle = 'rgba(100,180,100,0.3)'; ctx.beginPath(); ctx.arc(t.x - t.r*0.3, t.y - t.r*0.3, t.r*0.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#4a3a1a'; ctx.fillRect(t.x - t.trunk/2, t.y - t.trunk/2, t.trunk, t.trunk);
     }
+  }
+}
+
+function drawObstacles(x0, y0, x1, y1) {
+  const t = performance.now() / 1000;
+  for (const o of OBSTACLES) {
+    if (o.x + o.r < x0 || o.x - o.r > x1 || o.y + o.r < y0 || o.y - o.r > y1) continue;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    if (o.knocked) ctx.rotate(o.angle);
+    // 阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(2, 3, o.r * 0.9, o.r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    if (o.type === 'barrier') {
+      // 路障护栏：红白条纹（田野）/青色能量栏（工厂）
+      if (MAP.obstacleStyle === 'tech') {
+        ctx.fillStyle = 'rgba(0,229,255,0.7)'; ctx.fillRect(-o.r, -3, o.r * 2, 6);
+        ctx.fillStyle = 'rgba(0,229,255,0.25)'; ctx.fillRect(-o.r, -6, o.r * 2, 12);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        for (let i = -o.r + 4; i < o.r - 2; i += 5) { ctx.beginPath(); ctx.moveTo(i, -3); ctx.lineTo(i, 3); ctx.stroke(); }
+      } else {
+        ctx.fillStyle = '#cc2222'; ctx.fillRect(-o.r, -4, o.r * 2, 8);
+        ctx.fillStyle = '#fff'; for (let i = -o.r; i < o.r; i += 6) ctx.fillRect(i, -4, 3, 8);
+      }
+    } else if (o.type === 'cone') {
+      // 锥桶：三角形 + 反光带
+      ctx.fillStyle = '#ff6600';
+      ctx.beginPath(); ctx.moveTo(0, -o.r); ctx.lineTo(o.r * 0.7, o.r * 0.5); ctx.lineTo(-o.r * 0.7, o.r * 0.5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(-o.r * 0.5, -o.r * 0.2, o.r, 3);
+      ctx.fillStyle = '#333'; ctx.fillRect(-o.r * 0.7, o.r * 0.4, o.r * 1.4, 4);
+    } else if (o.type === 'crate') {
+      // 集装箱：方形 + X 支撑
+      if (MAP.obstacleStyle === 'tech') {
+        ctx.fillStyle = '#3a4250'; ctx.fillRect(-o.r, -o.r, o.r * 2, o.r * 2);
+        ctx.strokeStyle = 'rgba(0,229,255,0.5)'; ctx.lineWidth = 1.5;
+        ctx.strokeRect(-o.r + 1, -o.r + 1, o.r * 2 - 2, o.r * 2 - 2);
+        ctx.beginPath(); ctx.moveTo(-o.r, -o.r); ctx.lineTo(o.r, o.r); ctx.moveTo(o.r, -o.r); ctx.lineTo(-o.r, o.r); ctx.stroke();
+      } else {
+        ctx.fillStyle = '#8a5a2a'; ctx.fillRect(-o.r, -o.r, o.r * 2, o.r * 2);
+        ctx.strokeStyle = '#5a3a1a'; ctx.lineWidth = 2; ctx.strokeRect(-o.r, -o.r, o.r * 2, o.r * 2);
+        ctx.beginPath(); ctx.moveTo(-o.r, -o.r); ctx.lineTo(o.r, o.r); ctx.moveTo(o.r, -o.r); ctx.lineTo(-o.r, o.r); ctx.stroke();
+      }
+    } else if (o.type === 'barrel') {
+      // 木桶/油桶
+      ctx.fillStyle = MAP.obstacleStyle === 'tech' ? '#445566' : '#8a4a2a';
+      ctx.fillRect(-o.r * 0.7, -o.r, o.r * 1.4, o.r * 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(-o.r * 0.7, -o.r, o.r * 1.4, o.r * 2);
+      ctx.beginPath(); ctx.moveTo(-o.r * 0.7, -o.r * 0.3); ctx.lineTo(o.r * 0.7, -o.r * 0.3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-o.r * 0.7, o.r * 0.3); ctx.lineTo(o.r * 0.7, o.r * 0.3); ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
