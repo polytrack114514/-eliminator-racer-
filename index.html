@@ -600,6 +600,10 @@ class Car {
     }
     let speedMul = 1;
     if (pointInPuddle(this.x, this.y)) { speedMul = 0.45; this.speed *= 0.97; }
+    // 天气：雨天打滑（转向迟钝 + 轻微减速）
+    if (game.weather === 'rain') { speedMul *= 0.85; if (Math.abs(this.speed) > 5 && Math.random() < 0.02) this.angle += (Math.random() - 0.5) * 0.3; }
+    // 连击 buff：玩家氮气加速
+    if (this.isPlayer && game.killCombo.buff > 0) { speedMul *= 1.4; }
     const vx = Math.cos(this.angle) * this.speed * speedMul;
     const vy = Math.sin(this.angle) * this.speed * speedMul;
     const oldX = this.x, oldY = this.y;
@@ -728,6 +732,12 @@ function initGame() {
     state: 'playing', over: false, cam: { x: player.x, y: player.y },
     dropTimer: 0, countdownText: '', countdownTimer: 0,
     aiDuels: [],
+    // 空投补给系统
+    airdrops: [], airdropTimer: 15,
+    // 天气系统
+    weather: 'clear', weatherTimer: 25, weatherTransition: 0, rainDrops: [],
+    // 击杀连击系统
+    killCombo: { count: 0, timer: 0, buff: 0 },
   };
 }
 
@@ -758,6 +768,15 @@ function showEndScreen(win, desc) {
 }
 
 function addKillFeed(winner, loser, reason) {
+  // 玩家击杀触发连击系统
+  if (winner && winner.isPlayer && loser && !loser.isPlayer) {
+    game.killCombo.count += 1;
+    game.killCombo.timer = 8; // 8秒内连续击杀才算连击
+    if (game.killCombo.count >= 2) {
+      game.killCombo.buff = 5; // 5秒加速 buff
+      addKillFeed(null, null, `${game.killCombo.count} 连击！氮气加速激活！`);
+    }
+  }
   const feed = document.getElementById('kill-feed');
   const msg = document.createElement('div');
   msg.className = 'kill-msg';
@@ -867,6 +886,66 @@ function update(dt) {
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
   updateObstacles(dt);
+
+  // ===== 空投补给系统 =====
+  game.airdropTimer += dt;
+  if (game.airdropTimer > 30 && game.airdrops.filter(a => !a.landed).length < 2) {
+    game.airdropTimer = 0;
+    const p = randomPointOnRoad(null, game.zone);
+    game.airdrops.push({ x: p.x, y: p.y, level: 7 + Math.floor(Math.random() * 4), landed: false, fallY: -800, fallSpeed: 0, t: 0, taken: false });
+    addKillFeed(null, null, '空投补给到达！争夺稀有高级车包！');
+  }
+  for (const a of game.airdrops) {
+    if (a.taken) continue;
+    a.t += dt;
+    if (!a.landed) {
+      a.fallSpeed += 200 * dt;
+      a.fallY += a.fallSpeed * dt;
+      if (a.fallY >= 0) { a.fallY = 0; a.landed = true; }
+    } else {
+      for (const c of allCars) {
+        if (!c.alive || c.dropCooldown > 0) continue;
+        if (Math.hypot(c.x - a.x, c.y - a.y) < 35) {
+          a.taken = true; if (a.level > c.level) c.level = a.level; c.dropCooldown = 3;
+          if (c.isPlayer) addKillFeed(c, null, '抢到空投！车辆升至 Lv' + a.level);
+          break;
+        }
+      }
+    }
+  }
+  game.airdrops = game.airdrops.filter(a => !a.taken);
+
+  // ===== 天气系统 =====
+  game.weatherTimer -= dt;
+  if (game.weatherTimer <= 0) {
+    const weathers = ['clear', 'rain', 'fog', 'night'];
+    let next; do { next = weathers[Math.floor(Math.random() * weathers.length)]; } while (next === game.weather);
+    game.weather = next;
+    game.weatherTimer = 35 + Math.random() * 25;
+    game.weatherTransition = 2; // 2秒过渡
+    const wnames = { clear: '天气放晴', rain: '天降暴雨，路面湿滑！', fog: '浓雾弥漫，视野受限！', night: '夜幕降临，开启车灯！' };
+    addKillFeed(null, null, wnames[next]);
+  }
+  if (game.weatherTransition > 0) game.weatherTransition -= dt;
+  // 雨滴粒子
+  if (game.weather === 'rain') {
+    if (game.rainDrops.length < 120) {
+      for (let i = 0; i < 3; i++) game.rainDrops.push({ x: Math.random() * canvas.width, y: -10, vy: 600 + Math.random() * 300, len: 8 + Math.random() * 6 });
+    }
+  }
+  for (let i = game.rainDrops.length - 1; i >= 0; i--) {
+    const r = game.rainDrops[i];
+    r.y += r.vy * dt;
+    if (r.y > canvas.height + 20) { if (game.weather === 'rain') { r.y = -10; r.x = Math.random() * canvas.width; } else game.rainDrops.splice(i, 1); }
+  }
+
+  // ===== 击杀连击系统 =====
+  if (game.killCombo.timer > 0) {
+    game.killCombo.timer -= dt;
+    if (game.killCombo.timer <= 0) { game.killCombo.count = 0; game.killCombo.buff = 0; }
+  }
+  if (game.killCombo.buff > 0) game.killCombo.buff -= dt;
+
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
     // 终点使用地图固定坐标（每局一致）
@@ -904,6 +983,8 @@ function updateAI(ai, dt) {
     ai.aiTimer = 2 + Math.random() * 3;
     let nearestDrop = null, nd = 400;
     for (const d of game.drops) { if (d.taken) continue; const dist = Math.hypot(d.x - ai.x, d.y - ai.y); if (dist < nd) { nd = dist; nearestDrop = d; } }
+    // 也寻找已着陆的空投（更大范围 800）
+    for (const a of game.airdrops) { if (!a.landed || a.taken) continue; const dist = Math.hypot(a.x - ai.x, a.y - ai.y); if (dist < 800 && dist < nd) { nd = dist; nearestDrop = a; } }
     const seekChance = DIFFICULTY[currentDifficulty].aiSeekPlayerChance;
     if (game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
     else if (nearestDrop) { ai.aiSeekPlayer = false; ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y }; }
@@ -925,16 +1006,114 @@ function steerTowards(ai, tx, ty, dt) {
   if (Math.abs(diff) > 0.1) { ai.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt); ai._turn = Math.sign(diff); } else ai._turn = 0;
 }
 
+// ===== 空投补给渲染 =====
+function drawAirdrop(a) {
+  const t = a.t;
+  if (!a.landed) {
+    // 下落中：降落伞 + 空投箱
+    const boxY = a.y + a.fallY;
+    // 降落伞
+    ctx.fillStyle = 'rgba(255,60,60,0.8)';
+    ctx.beginPath(); ctx.arc(a.x, boxY - 40, 25, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.arc(a.x - 8, boxY - 40, 8, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(a.x + 8, boxY - 40, 8, Math.PI, 0); ctx.fill();
+    // 绳索
+    ctx.strokeStyle = 'rgba(200,200,200,0.6)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(a.x - 12, boxY - 35); ctx.lineTo(a.x - 8, boxY - 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a.x + 12, boxY - 35); ctx.lineTo(a.x + 8, boxY - 10); ctx.stroke();
+    // 空投箱
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(a.x - 14, boxY - 8, 28, 28);
+    ctx.fillStyle = '#bb5cff'; ctx.fillRect(a.x - 16, boxY - 10, 32, 32);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(a.x - 16, boxY - 10, 32, 32);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Lv' + a.level, a.x, boxY + 6);
+  } else {
+    // 着陆后：金色光柱 + 闪烁光环
+    const pulse = 0.5 + Math.sin(t * 4) * 0.3;
+    // 光柱
+    const grad = ctx.createLinearGradient(a.x, a.y, a.x, a.y - 300);
+    grad.addColorStop(0, `rgba(255,210,60,${0.5 * pulse})`);
+    grad.addColorStop(1, 'rgba(255,210,60,0)');
+    ctx.fillStyle = grad; ctx.fillRect(a.x - 20, a.y - 300, 40, 300);
+    // 地面光环
+    ctx.fillStyle = `rgba(255,210,60,${0.25 * pulse})`; ctx.beginPath(); ctx.arc(a.x, a.y, 40, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,210,60,${0.8 * pulse})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(a.x, a.y, 35, 0, Math.PI * 2); ctx.stroke();
+    // 箱子
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(a.x - 14, a.y - 8, 28, 28);
+    ctx.fillStyle = '#bb5cff'; ctx.fillRect(a.x - 16, a.y - 10, 32, 32);
+    ctx.strokeStyle = '#ffd33d'; ctx.lineWidth = 2; ctx.strokeRect(a.x - 16, a.y - 10, 32, 32);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Lv' + a.level, a.x, a.y + 6);
+  }
+}
+
+// ===== 夜晚车灯渲染 =====
+function drawHeadlights() {
+  for (const c of game.allCars()) {
+    const lx = c.x + Math.cos(c.angle) * 15;
+    const ly = c.y + Math.sin(c.angle) * 15;
+    // 车灯光锥
+    const grad = ctx.createRadialGradient(lx, ly, 0, lx, ly, 120);
+    grad.addColorStop(0, 'rgba(255,240,180,0.5)');
+    grad.addColorStop(0.5, 'rgba(255,240,180,0.2)');
+    grad.addColorStop(1, 'rgba(255,240,180,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    const spread = 0.5;
+    ctx.arc(lx, ly, 120, c.angle - spread, c.angle + spread);
+    ctx.closePath(); ctx.fill();
+    // 灯泡
+    ctx.fillStyle = 'rgba(255,255,200,0.9)';
+    ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// ===== 天气覆盖层 =====
+function drawWeatherOverlay() {
+  const trans = game.weatherTransition > 0 ? (2 - game.weatherTransition) / 2 : 1;
+  if (game.weather === 'rain') {
+    // 雨幕
+    ctx.fillStyle = `rgba(40,60,90,${0.15 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 雨滴
+    ctx.strokeStyle = `rgba(180,200,230,${0.6 * trans})`; ctx.lineWidth = 1;
+    for (const r of game.rainDrops) {
+      ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x - 2, r.y + r.len); ctx.stroke();
+    }
+  } else if (game.weather === 'fog') {
+    // 雾气覆盖（视野缩短）
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 50, canvas.width/2, canvas.height/2, canvas.width * 0.5);
+    grad.addColorStop(0, 'rgba(200,200,210,0)');
+    grad.addColorStop(0.4, `rgba(200,200,210,${0.2 * trans})`);
+    grad.addColorStop(1, `rgba(180,180,200,${0.75 * trans})`);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else if (game.weather === 'night') {
+    // 夜晚黑暗
+    ctx.fillStyle = `rgba(5,10,25,${0.65 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 玩家周围微光（环境光）
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, 150);
+    grad.addColorStop(0, `rgba(100,120,160,${0.2 * trans})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
 function render() {
   ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.save(); ctx.translate(canvas.width / 2, canvas.height / 2); ctx.scale(CAM_ZOOM, CAM_ZOOM); ctx.translate(-game.cam.x, -game.cam.y);
   drawWorld(); drawZone();
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
+  for (const a of game.airdrops) drawAirdrop(a);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
   for (const d of game.aiDuels) { drawAIDuelCheckpoint(d.checkpoint, d.a.color, d.b.color); }
   for (const c of game.allCars()) c.draw(ctx);
+  // 夜晚车灯
+  if (game.weather === 'night') drawHeadlights();
   ctx.restore();
+  // 天气覆盖层
+  drawWeatherOverlay();
   // 1v1 时绘制指向检查点的箭头
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase === 'racing') {
     drawDirectionArrow(game.h2h.checkpoint, '#ffd33d');
@@ -942,6 +1121,10 @@ function render() {
   // 决赛阶段绘制指向终点的箭头
   if (game.finalPhase && game.finalPoint) {
     drawDirectionArrow(game.finalPoint, '#ff8c00');
+  }
+  // 空投方向箭头
+  for (const a of game.airdrops) {
+    if (!a.taken && a.landed) drawDirectionArrow({ x: a.x, y: a.y }, '#bb5cff');
   }
   drawHUD(); drawMinimap();
   const cd = document.getElementById('countdown');
@@ -1361,6 +1544,34 @@ function drawHUD() {
   document.getElementById('car-level-name').textContent = `Lv.${lvl} ${CAR_LEVELS[lvl].name}`;
   document.getElementById('speed-val').textContent = Math.round(Math.abs(game.player.speed));
   document.getElementById('alive-count').textContent = game.allCars().length;
+  // 天气标识（右上角 minimap 下方）
+  const wIcons = { clear: '☀', rain: '🌧', fog: '🌫', night: '🌙' };
+  const wNames = { clear: '晴朗', rain: '暴雨', fog: '浓雾', night: '夜晚' };
+  const wColor = { clear: '#ffd33d', rain: '#6090ff', fog: '#a0a0b0', night: '#4060a0' };
+  ctx.save();
+  ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(canvas.width - 80, 135, 72, 22);
+  ctx.fillStyle = wColor[game.weather];
+  ctx.fillText(wIcons[game.weather] + ' ' + wNames[game.weather], canvas.width - 12, 138);
+  ctx.restore();
+  // 连击计数器（左下角）
+  if (game.killCombo.count >= 2) {
+    ctx.save();
+    const x = 12, y = canvas.height - 60;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x, y, 110, 42);
+    ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 2; ctx.strokeRect(x, y, 110, 42);
+    ctx.fillStyle = '#ff8c00'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(`${game.killCombo.count} 连击!`, x + 8, y + 4);
+    if (game.killCombo.buff > 0) {
+      ctx.fillStyle = '#00e5ff'; ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`氮气 ${Math.ceil(game.killCombo.buff)}s`, x + 8, y + 26);
+    } else {
+      ctx.fillStyle = '#aaa'; ctx.font = '10px sans-serif';
+      ctx.fillText(`连击窗口 ${Math.ceil(game.killCombo.timer)}s`, x + 8, y + 26);
+    }
+    ctx.restore();
+  }
 }
 
 function drawMinimap() {
@@ -1371,6 +1582,8 @@ function drawMinimap() {
     miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
   }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
+  // 空投：金色闪烁点
+  for (const a of game.airdrops) { if (a.taken) continue; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(a.x * sx, a.y * sy, 3.5, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   for (const d of game.aiDuels) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
