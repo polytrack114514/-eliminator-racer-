@@ -128,6 +128,7 @@
   #btn-gas { bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(60,160,80,0.6); }
   #btn-brake { bottom: 140px; right: 30px; width: 60px; height: 60px; background: rgba(200,60,60,0.6); font-size: 18px; }
   #btn-h2h { bottom: 230px; right: 30px; width: 60px; height: 60px; background: rgba(255,80,80,0.7); font-size: 12px; border-radius: 50%; }
+  #btn-emp { bottom: 300px; right: 30px; width: 60px; height: 60px; background: rgba(80,180,255,0.7); font-size: 12px; border-radius: 50%; }
   @media (hover: hover) and (pointer: fine) { #touch-controls { display: none !important; } }
   @media (hover: none) and (pointer: coarse) {
     #touch-controls { display: block; }
@@ -198,11 +199,13 @@
     <div class="stat-row"><span>车辆等级</span><span class="val" id="car-level-name">Lv.2 家用轿车</span></div>
     <div class="stat-row"><span>当前速度</span><span class="val" id="speed-val">0</span></div>
     <div class="stat-row"><span>用时</span><span class="val" id="time-val">0分0秒</span></div>
+    <div class="stat-row"><span>击杀数</span><span class="val" id="kill-count">0</span></div>
+    <div class="stat-row" id="emp-row" style="display:none;"><span>EMP 干扰弹</span><span class="val" style="color:#a0e0ff;">已就绪 (按E)</span></div>
   </div>
 
   <div id="hud-top"><div id="alive-count">9</div><div id="alive-label">ALIVE</div></div>
   <div id="minimap-wrap"><canvas id="minimap" width="160" height="160"></canvas></div>
-  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; 拾取紫色车包升级</div>
+  <div id="hud-bottom"><kbd>W A S D</kbd> 移动 &nbsp;|&nbsp; <kbd>SPACE</kbd> 触发1v1 &nbsp;|&nbsp; <kbd>E</kbd> 释放EMP &nbsp;|&nbsp; 拾取紫色车包升级</div>
   <div id="countdown" style="display: none;">1</div>
   <div id="kill-feed"></div>
 
@@ -211,6 +214,7 @@
     <div class="touch-btn" id="btn-brake">⬇</div>
     <div class="touch-btn" id="btn-gas">GO</div>
     <div class="touch-btn" id="btn-h2h">1v1</div>
+    <div class="touch-btn" id="btn-emp">EMP</div>
   </div>
 
   <div id="h2h-banner" style="display: none;">1v1 对决！冲向金色检查点！</div>
@@ -227,6 +231,7 @@
   <div id="end-screen" class="lose" style="display: none;">
     <h1 id="end-title">GAME OVER</h1>
     <p id="end-desc">AI 抢先到达终点</p>
+    <div id="leaderboard-box" style="background:rgba(40,40,60,0.6);border:1px solid rgba(255,210,60,0.4);border-radius:8px;padding:10px 16px;margin:10px 0 16px;font-size:12px;color:#bbb;line-height:1.7;"></div>
     <div style="display:flex;gap:12px;justify-content:center;">
       <button id="restart-btn">重新开始</button>
       <button id="back-menu-btn" style="padding:12px 24px;font-size:16px;font-weight:bold;background:#444;color:#fff;border:1px solid #888;border-radius:6px;cursor:pointer;">返回主菜单</button>
@@ -289,7 +294,7 @@ const MAPS = {
 
 let currentMapId = 'field';
 let MAP = MAPS.field;
-let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [], OBSTACLES = [];
+let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [], OBSTACLES = [], GAS_STATIONS = [];
 
 function loadMap(id) {
   currentMapId = id;
@@ -392,8 +397,187 @@ function loadMap(id) {
     const type = obstacleTypes[Math.floor(R() * obstacleTypes.length)];
     OBSTACLES.push({ x, y, type, r: 14, hp: 2, knocked: false, angle: R() * Math.PI * 2, vx: 0, vy: 0 });
   }
+
+  // ===== 加油站（撞爆后造成范围伤害） =====
+  GAS_STATIONS = [];
+  for (let i = 0; i < 6; i++) {
+    const p = randomPointOnRoad(null, null);
+    // 避免与建筑重叠
+    let blocked = false;
+    for (const h of HOUSES) { if (p.x > h.x - 60 && p.x < h.x + h.w + 60 && p.y > h.y - 60 && p.y < h.y + h.h + 60) { blocked = true; break; } }
+    if (blocked) { i--; continue; }
+    // 避免加油站之间过近
+    let tooClose = false;
+    for (const g of GAS_STATIONS) { if (Math.hypot(p.x - g.x, p.y - g.y) < 2000) { tooClose = true; break; } }
+    if (tooClose) { i--; continue; }
+    GAS_STATIONS.push({ x: p.x, y: p.y, radius: 28, exploded: false, explodeT: 0 });
+  }
 }
 
+// ===== 排行榜系统（本地存储） =====
+function initLeaderboard() {
+  const saved = localStorage.getItem('eliminator_leaderboard');
+  if (!saved) {
+    const fresh = {};
+    for (const id of Object.keys(MAPS)) {
+      fresh[id] = { bestTime: Infinity, bestRank: 999, mostKills: 0, games: 0 };
+    }
+    localStorage.setItem('eliminator_leaderboard', JSON.stringify(fresh));
+  }
+}
+function getLeaderboard() {
+  initLeaderboard();
+  try { return JSON.parse(localStorage.getItem('eliminator_leaderboard')); }
+  catch (e) { initLeaderboard(); return JSON.parse(localStorage.getItem('eliminator_leaderboard')); }
+}
+function updateLeaderboard(win, kills, rank) {
+  const lb = getLeaderboard();
+  const mapKey = currentMapId;
+  if (!lb[mapKey]) lb[mapKey] = { bestTime: Infinity, bestRank: 999, mostKills: 0, games: 0 };
+  const entry = lb[mapKey];
+  entry.games = (entry.games || 0) + 1;
+  if (win) {
+    if (game.elapsed < entry.bestTime) entry.bestTime = game.elapsed;
+    if (rank < entry.bestRank) entry.bestRank = rank;
+  }
+  if (kills > entry.mostKills) entry.mostKills = kills;
+  localStorage.setItem('eliminator_leaderboard', JSON.stringify(lb));
+  return entry;
+}
+function fmtTimeOrNA(t) { return (t === Infinity || !isFinite(t)) ? '尚无记录' : fmtTime(t); }
+
+// ===== EMP 干扰弹系统 =====
+function tryUseEMP() {
+  if (!game || game.over || !game.player || !game.player.alive) return;
+  if (!game.player.hasEMP) { addKillFeed(null, null, '没有 EMP 干扰弹！拾取蓝色道具获取'); return; }
+  useEMP(game.player);
+}
+function useEMP(car) {
+  if (!car.hasEMP) return;
+  car.hasEMP = false;
+  if (car.isPlayer) document.getElementById('emp-row').style.display = 'none';
+  let hits = 0;
+  for (const c of game.allCars()) {
+    if (c === car || !c.alive) continue;
+    const d = Math.hypot(c.x - car.x, c.y - car.y);
+    if (d < 500) {
+      c.empTime = 3.5;
+      hits++;
+    }
+  }
+  // 视觉冲击波
+  game.empEffects.push({ x: car.x, y: car.y, radius: 0, maxRadius: 500, life: 1, t: 0 });
+  addKillFeed(car, null, `释放 EMP 干扰弹！干扰 ${hits} 辆敌方车辆`);
+}
+function updateEMP(dt) {
+  // 递减 EMP 干扰时间
+  for (const c of game.allCars()) {
+    if (c.empTime > 0) {
+      c.empTime -= dt;
+      if (c.empTime <= 0) c.empTime = 0;
+    }
+  }
+  // 更新 EMP 视觉效果
+  for (let i = game.empEffects.length - 1; i >= 0; i--) {
+    const e = game.empEffects[i];
+    e.t += dt;
+    e.life -= dt;
+    e.radius = e.maxRadius * (1 - e.life);
+    if (e.life <= 0) game.empEffects.splice(i, 1);
+  }
+}
+function checkEMPPickup(car) {
+  for (let i = game.empDrops.length - 1; i >= 0; i--) {
+    const emp = game.empDrops[i];
+    if (emp.taken) continue;
+    const d = Math.hypot(car.x - emp.x, car.y - emp.y);
+    if (d < emp.radius + 20) {
+      emp.taken = true;
+      car.hasEMP = true;
+      if (car.isPlayer) {
+        document.getElementById('emp-row').style.display = 'flex';
+        addKillFeed(null, null, '获得 EMP 干扰弹！按 E 释放');
+      }
+      game.empDrops.splice(i, 1);
+    }
+  }
+}
+function spawnEMPDrop() {
+  const p = randomPointOnRoad(null, game.zone);
+  game.empDrops.push({ x: p.x, y: p.y, radius: 22, taken: false, t: 0 });
+  addKillFeed(null, null, 'EMP 干扰弹已空投！地图上显示蓝色标记');
+}
+
+// ===== 加油站爆炸系统 =====
+function checkGasStationCollision(car) {
+  for (const gs of GAS_STATIONS) {
+    if (gs.exploded) continue;
+    const d = Math.hypot(car.x - gs.x, car.y - gs.y);
+    if (d < gs.radius + 18) {
+      gs.exploded = true;
+      gs.explodeT = 0;
+      explodeGasStation(gs, car);
+    }
+  }
+}
+function explodeGasStation(gs, trigger) {
+  // 爆炸粒子
+  for (let i = 0; i < 50; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 150 + Math.random() * 280;
+    game.explosionParticles.push({
+      x: gs.x, y: gs.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 4 + Math.random() * 8,
+      life: 0.8 + Math.random() * 0.7,
+      maxLife: 1.5,
+      color: `hsl(${Math.random() * 50}, 100%, ${50 + Math.random() * 30}%)`
+    });
+  }
+  // 烟雾粒子
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 80;
+    game.explosionParticles.push({
+      x: gs.x, y: gs.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 50,
+      size: 12 + Math.random() * 12,
+      life: 1.5 + Math.random() * 1,
+      maxLife: 2.5,
+      color: 'rgba(60,60,60,0.6)'
+    });
+  }
+  // 范围伤害 350
+  for (const c of game.allCars()) {
+    const d = Math.hypot(c.x - gs.x, c.y - gs.y);
+    if (d < 350) {
+      c.alive = false;
+      if (c.isPlayer) showEndScreen(false, '你被加油站爆炸淘汰了！');
+      else {
+        const killer = (trigger && trigger.isPlayer && trigger !== c) ? trigger : null;
+        addKillFeed(killer, c, '加油站爆炸');
+      }
+    }
+  }
+  addKillFeed(null, null, '💥 加油站爆炸！范围伤害触发');
+}
+function updateExplosionParticles(dt) {
+  if (!game.explosionParticles) return;
+  for (let i = game.explosionParticles.length - 1; i >= 0; i--) {
+    const p = game.explosionParticles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+    p.vy += 60 * dt; // 轻微重力
+    p.life -= dt;
+    if (p.life <= 0) game.explosionParticles.splice(i, 1);
+  }
+}
+
+initLeaderboard();
 loadMap('field'); // 初始化默认地图
 
 function pointOnRoad(x, y) {
@@ -511,7 +695,7 @@ let currentDifficulty = 'normal';
 let game;
 
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ') tryTriggerHeadToHead(); });
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ') tryTriggerHeadToHead(); if (e.key.toLowerCase() === 'e') tryUseEMP(); });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
 const touch = { enabled: false, joystick: { x: 0, y: 0, active: false }, gas: false, brake: false };
@@ -561,6 +745,7 @@ function bindTouchBtn(id, onDown, onUp) {
 bindTouchBtn('btn-gas', () => touch.gas = true, () => touch.gas = false);
 bindTouchBtn('btn-brake', () => touch.brake = true, () => touch.brake = false);
 bindTouchBtn('btn-h2h', () => tryTriggerHeadToHead(), () => {});
+bindTouchBtn('btn-emp', () => tryUseEMP(), () => {});
 
 function resizeCanvas() {
   let w = window.innerWidth, h = window.innerHeight;
@@ -580,11 +765,36 @@ class Car {
     this.alive = true; this.name = isPlayer ? 'Player' : 'AI';
     this.w = 26; this.h = 40;
     this.aiTarget = null; this.aiTimer = 0; this.aiSeekPlayer = false; this.dropCooldown = 3;
+    this.hasEMP = false; this.empTime = 0; this._empBaseAngle = null;
   }
   get stats() { return CAR_LEVELS[this.level]; }
   update(dt, input) {
     if (!this.alive) return;
     const st = this.stats;
+    // EMP 干扰期间：转向失控 + 持续减速，但保留部分前进能力
+    if (this.empTime > 0) {
+      // 持续减速
+      this.speed *= 0.96;
+      // 随机转向（干扰方向控制）
+      this.angle += (Math.random() - 0.5) * 0.4;
+      if (this.dropCooldown > 0) this.dropCooldown -= dt;
+      let speedMul = 1;
+      if (pointInPuddle(this.x, this.y)) speedMul = 0.45;
+      const vx = Math.cos(this.angle) * this.speed * speedMul;
+      const vy = Math.sin(this.angle) * this.speed * speedMul;
+      const oldX = this.x, oldY = this.y;
+      this.x += vx * dt; this.y += vy * dt;
+      if (circleHitsHouse(this.x, this.y, 18)) { this.x = oldX; this.y = oldY; this.speed *= 0.3; }
+      if (circleHitsTree(this.x, this.y, 18)) { this.x = oldX; this.y = oldY; this.speed *= 0.4; }
+      const hitObs = collideWithObstacle(this);
+      if (hitObs) this.speed *= 0.55;
+      const margin = 20;
+      if (this.x < margin) { this.x = margin; this.speed *= -0.4; }
+      if (this.x > WORLD.w - margin) { this.x = WORLD.w - margin; this.speed *= -0.4; }
+      if (this.y < margin) { this.y = margin; this.speed *= -0.4; }
+      if (this.y > WORLD.h - margin) { this.y = WORLD.h - margin; this.speed *= -0.4; }
+      return;
+    }
     if (input.forward) this.speed += st.accel * dt;
     else if (input.back) this.speed -= st.accel * dt;
     else { const fr = 60 * dt; if (this.speed > 0) this.speed = Math.max(0, this.speed - fr); else if (this.speed < 0) this.speed = Math.min(0, this.speed + fr); }
@@ -1015,7 +1225,15 @@ function initGame() {
     elapsed: 0,
     // 龙卷风系统
     tornadoes: [], tornadoTimer: 20,
+    // 击杀数统计
+    killCount: 0,
+    // EMP 干扰弹系统
+    empDrops: [], empEffects: [], empTimer: 18,
+    // 爆炸粒子
+    explosionParticles: [],
   };
+  // 重置 EMP HUD
+  document.getElementById('emp-row').style.display = 'none';
 }
 
 function tryTriggerHeadToHead() {
@@ -1041,22 +1259,38 @@ function fmtTime(s) {
 
 function showEndScreen(win, desc) {
   game.state = win ? 'win' : 'over'; game.over = true;
+  document.getElementById('emp-row').style.display = 'none';
   const screen = document.getElementById('end-screen');
   screen.className = win ? 'win' : 'lose';
   document.getElementById('end-title').textContent = win ? 'WINNER!' : 'GAME OVER';
   const totalCars = 1 + DIFFICULTY[currentDifficulty].aiCount;
   const rank = win ? 1 : game.allCars().length + 1;
-  document.getElementById('end-desc').textContent = desc + ` 你排名第 ${rank}/${totalCars}。用时 ${fmtTime(game.elapsed)}`;
+  // 更新排行榜
+  const entry = updateLeaderboard(win, game.killCount, rank);
+  document.getElementById('end-desc').textContent = desc + ` 你排名第 ${rank}/${totalCars}。用时 ${fmtTime(game.elapsed)}，击杀 ${game.killCount} 辆。`;
+  // 显示排行榜
+  const lbBox = document.getElementById('leaderboard-box');
+  const rankText = entry.bestRank === 999 ? '尚无冠军记录' : `第 ${entry.bestRank} 名`;
+  lbBox.innerHTML = `🏆 ${MAP.name} 排行榜<br>` +
+    `最快夺冠：${fmtTimeOrNA(entry.bestTime)} &nbsp;|&nbsp; 最佳排名：${rankText}<br>` +
+    `最多击杀：${entry.mostKills} &nbsp;|&nbsp; 总场次：${entry.games}`;
   screen.style.display = 'block';
 }
 
 function addKillFeed(winner, loser, reason) {
+  // 统计玩家击杀数
+  if (winner && winner.isPlayer && loser && !loser.isPlayer) {
+    game.killCount += 1;
+  }
   const feed = document.getElementById('kill-feed');
   const msg = document.createElement('div');
   msg.className = 'kill-msg';
   if (!winner && !loser && reason) {
     msg.textContent = reason; // 特殊消息如 "AI3 vs AI5 开始决斗！"
     msg.style.borderLeftColor = '#ff8c00';
+  } else if (reason === '加油站爆炸' && winner && winner.isPlayer) {
+    msg.textContent = `你触发加油站爆炸淘汰了 ${loser.name}`;
+    msg.style.borderLeftColor = '#ff6600';
   } else {
     const wName = winner ? winner.name : '毒圈';
     const lName = loser ? loser.name : '未知';
@@ -1162,6 +1396,22 @@ function update(dt) {
   }
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
   updateObstacles(dt);
+
+  // ===== 加油站碰撞检测 =====
+  for (const c of allCars) { if (c.alive) checkGasStationCollision(c); }
+  // 加油站爆炸计时
+  for (const gs of GAS_STATIONS) { if (gs.exploded) gs.explodeT += dt; }
+
+  // ===== EMP 干扰弹系统 =====
+  game.empTimer += dt;
+  if (game.empTimer > 25 && game.empDrops.length < 2) {
+    game.empTimer = 0;
+    spawnEMPDrop();
+  }
+  for (const emp of game.empDrops) emp.t += dt;
+  for (const c of allCars) { if (c.alive) checkEMPPickup(c); }
+  updateEMP(dt);
+  updateExplosionParticles(dt);
 
   // ===== 空投补给系统 =====
   game.airdropTimer += dt;
@@ -1328,6 +1578,8 @@ function updateAI(ai, dt) {
     for (const d of game.drops) { if (d.taken) continue; const dist = Math.hypot(d.x - ai.x, d.y - ai.y); if (dist < nd) { nd = dist; nearestDrop = d; } }
     // 也寻找已着陆的空投（更大范围 800）
     for (const a of game.airdrops) { if (!a.landed || a.taken) continue; const dist = Math.hypot(a.x - ai.x, a.y - ai.y); if (dist < 800 && dist < nd) { nd = dist; nearestDrop = a; } }
+    // 寻找 EMP 道具（范围 600）
+    for (const e of game.empDrops) { if (e.taken) continue; const dist = Math.hypot(e.x - ai.x, e.y - ai.y); if (dist < 600 && dist < nd) { nd = dist; nearestDrop = { x: e.x, y: e.y }; } }
     // 躲避龙卷风：150范围内逃离
     let fleeTornado = null;
     for (const tw of game.tornadoes) {
@@ -1339,6 +1591,24 @@ function updateAI(ai, dt) {
     else if (game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
     else if (nearestDrop) { ai.aiSeekPlayer = false; ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y }; }
     else { ai.aiSeekPlayer = false; ai.aiTarget = { x: 200 + Math.random() * (WORLD.w - 400), y: 200 + Math.random() * (WORLD.h - 400) }; }
+  }
+  // AI 自动使用 EMP：当持有 EMP 且 500 范围内有其他车
+  if (ai.hasEMP) {
+    let nearbyCount = 0;
+    for (const c of game.allCars()) {
+      if (c === ai || !c.alive) continue;
+      if (Math.hypot(c.x - ai.x, c.y - ai.y) < 450) nearbyCount++;
+    }
+    if (nearbyCount >= 1 && Math.random() < 0.5) {
+      ai.hasEMP = false;
+      for (const c of game.allCars()) {
+        if (c === ai || !c.alive) continue;
+        const d = Math.hypot(c.x - ai.x, c.y - ai.y);
+        if (d < 500) c.empTime = 3;
+      }
+      game.empEffects.push({ x: ai.x, y: ai.y, radius: 0, maxRadius: 500, life: 1, t: 0 });
+      addKillFeed(ai, null, `${ai.name} 释放了 EMP 干扰弹！`);
+    }
   }
   const edge = 150;
   if (ai.x < edge || ai.x > WORLD.w - edge || ai.y < edge || ai.y > WORLD.h - edge) ai.aiTarget = { x: WORLD.w / 2, y: WORLD.h / 2 };
@@ -1357,6 +1627,123 @@ function steerTowards(ai, tx, ty, dt) {
 }
 
 // ===== 空投补给渲染 =====
+// ===== 加油站渲染 =====
+function drawGasStations(x0, y0, x1, y1) {
+  for (const gs of GAS_STATIONS) {
+    if (gs.x + 50 < x0 || gs.x - 50 > x1 || gs.y + 50 < y0 || gs.y - 50 > y1) continue;
+    ctx.save();
+    if (gs.exploded) {
+      // 爆炸后的废墟：黑色焦土
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.beginPath(); ctx.ellipse(gs.x, gs.y, 35, 28, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#222';
+      ctx.beginPath(); ctx.ellipse(gs.x, gs.y, 28, 22, 0, 0, Math.PI * 2); ctx.fill();
+      // 残骸
+      ctx.fillStyle = '#444';
+      ctx.fillRect(gs.x - 10, gs.y - 4, 20, 8);
+      ctx.fillRect(gs.x - 4, gs.y - 10, 8, 20);
+      // 余烬
+      if (gs.explodeT < 5) {
+        const flicker = 0.5 + Math.sin(gs.explodeT * 20) * 0.3;
+        ctx.fillStyle = `rgba(255,${100 + Math.random() * 80},40,${flicker * 0.6})`;
+        ctx.beginPath(); ctx.arc(gs.x, gs.y, 8, 0, Math.PI * 2); ctx.fill();
+      }
+    } else {
+      // 阴影
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath(); ctx.ellipse(gs.x + 4, gs.y + 4, 28, 22, 0, 0, Math.PI * 2); ctx.fill();
+      // 平台
+      ctx.fillStyle = '#5a5a5a';
+      ctx.beginPath(); ctx.ellipse(gs.x, gs.y, 28, 22, 0, 0, Math.PI * 2); ctx.fill();
+      // 顶棚支架
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(gs.x - 22, gs.y - 18); ctx.lineTo(gs.x - 22, gs.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(gs.x + 22, gs.y - 18); ctx.lineTo(gs.x + 22, gs.y); ctx.stroke();
+      // 顶棚（红白条纹）
+      ctx.fillStyle = '#cc2222';
+      ctx.fillRect(gs.x - 26, gs.y - 22, 52, 8);
+      ctx.fillStyle = '#fff';
+      for (let i = -26; i < 26; i += 8) ctx.fillRect(gs.x + i, gs.y - 22, 4, 8);
+      // 油枪
+      ctx.fillStyle = '#333';
+      ctx.fillRect(gs.x - 8, gs.y - 6, 4, 12);
+      ctx.fillRect(gs.x + 4, gs.y - 6, 4, 12);
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(gs.x - 8, gs.y - 8, 4, 2);
+      ctx.fillRect(gs.x + 4, gs.y - 8, 4, 2);
+      // 危险标志
+      ctx.fillStyle = '#ffd33d';
+      ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⛽', gs.x, gs.y - 30);
+    }
+    ctx.restore();
+  }
+}
+
+// ===== EMP 道具渲染 =====
+function drawEMPDrops(x0, y0, x1, y1) {
+  for (const emp of game.empDrops) {
+    if (emp.x + 30 < x0 || emp.x - 30 > x1 || emp.y + 30 < y0 || emp.y - 30 > y1) continue;
+    const t = emp.t;
+    const pulse = 0.5 + Math.sin(t * 4) * 0.3;
+    // 光环
+    ctx.fillStyle = `rgba(0,229,255,${0.2 * pulse})`;
+    ctx.beginPath(); ctx.arc(emp.x, emp.y, 25, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(0,229,255,${0.9 * pulse})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(emp.x, emp.y, 20 + Math.sin(t * 5) * 3, 0, Math.PI * 2); ctx.stroke();
+    // 道具方块
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(emp.x - 12, emp.y - 10, 24, 24);
+    ctx.fillStyle = '#0a4858';
+    ctx.fillRect(emp.x - 14, emp.y - 12, 28, 28);
+    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
+    ctx.strokeRect(emp.x - 14, emp.y - 12, 28, 28);
+    // 闪电符号
+    ctx.fillStyle = '#00e5ff';
+    ctx.beginPath();
+    ctx.moveTo(emp.x + 2, emp.y - 8);
+    ctx.lineTo(emp.x - 6, emp.y + 2);
+    ctx.lineTo(emp.x, emp.y + 2);
+    ctx.lineTo(emp.x - 2, emp.y + 8);
+    ctx.lineTo(emp.x + 6, emp.y - 2);
+    ctx.lineTo(emp.x, emp.y - 2);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+// ===== EMP 视觉效果渲染 =====
+function drawEMPEffects() {
+  for (const e of game.empEffects) {
+    const alpha = e.life;
+    // 冲击波环
+    ctx.strokeStyle = `rgba(0,229,255,${alpha * 0.9})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2); ctx.stroke();
+    // 内圈光晕
+    ctx.fillStyle = `rgba(100,200,255,${alpha * 0.15})`;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.radius * 0.7, 0, Math.PI * 2); ctx.fill();
+    // 中心闪光
+    if (e.t < 0.3) {
+      ctx.fillStyle = `rgba(255,255,255,${(0.3 - e.t) * 3})`;
+      ctx.beginPath(); ctx.arc(e.x, e.y, 30, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+// ===== 爆炸粒子渲染 =====
+function drawExplosionParticles(x0, y0, x1, y1) {
+  for (const p of game.explosionParticles) {
+    if (p.x + p.size < x0 || p.x - p.size > x1 || p.y + p.size < y0 || p.y - p.size > y1) continue;
+    const alpha = Math.min(1, p.life / (p.maxLife || 1));
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawAirdrop(a) {
   const t = a.t;
   if (!a.landed) {
@@ -1577,6 +1964,8 @@ function render() {
   const vx1 = Math.min(WORLD.w, game.cam.x + halfW), vy1 = Math.min(WORLD.h, game.cam.y + halfH);
   drawWorld(); drawZone();
   if (game.finalPhase) drawFinalPoint();
+  drawGasStations(vx0, vy0, vx1, vy1);
+  drawEMPDrops(vx0, vy0, vx1, vy1);
   for (const d of game.drops) d.draw(ctx);
   for (const a of game.airdrops) drawAirdrop(a);
   drawTornadoes(vx0, vy0, vx1, vy1);
@@ -1585,6 +1974,10 @@ function render() {
   for (const c of game.allCars()) c.draw(ctx);
   // 夜晚车灯
   if (game.weather === 'night') drawHeadlights();
+  // EMP 视觉效果（车辆上方）
+  drawEMPEffects();
+  // 爆炸粒子
+  drawExplosionParticles(vx0, vy0, vx1, vy1);
   ctx.restore();
   // 天气覆盖层
   drawWeatherOverlay();
@@ -1599,6 +1992,10 @@ function render() {
   // 空投方向箭头
   for (const a of game.airdrops) {
     if (!a.taken && a.landed) drawDirectionArrow({ x: a.x, y: a.y }, '#bb5cff');
+  }
+  // EMP 道具方向箭头
+  for (const e of game.empDrops) {
+    if (!e.taken) drawDirectionArrow({ x: e.x, y: e.y }, '#00e5ff');
   }
   drawHUD(); drawMinimap();
   const cd = document.getElementById('countdown');
@@ -2019,6 +2416,11 @@ function drawHUD() {
   document.getElementById('speed-val').textContent = Math.round(Math.abs(game.player.speed));
   document.getElementById('time-val').textContent = fmtTime(game.elapsed);
   document.getElementById('alive-count').textContent = game.allCars().length;
+  document.getElementById('kill-count').textContent = game.killCount;
+  // EMP 状态显示
+  const empRow = document.getElementById('emp-row');
+  if (game.player.hasEMP) empRow.style.display = 'flex';
+  else empRow.style.display = 'none';
   // 天气标识（右上角 minimap 下方）
   const wIcons = { clear: '☀', rain: '🌧', fog: '🌫', night: '🌙', storm: '🌪', hail: '❄' };
   const wNames = { clear: '晴朗', rain: '暴雨', fog: '浓雾', night: '夜晚', storm: '沙尘暴', hail: '冰雹' };
@@ -2040,6 +2442,13 @@ function drawMinimap() {
     miniCtx.strokeStyle = 'rgba(80,180,255,0.8)'; miniCtx.lineWidth = 1; miniCtx.beginPath(); miniCtx.arc(z.cx * sx, z.cy * sy, z.radius * sx, 0, Math.PI * 2); miniCtx.stroke();
   }
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
+  // EMP 干扰弹：蓝色标记
+  for (const e of game.empDrops) { if (e.taken) continue; miniCtx.fillStyle = '#00e5ff'; miniCtx.beginPath(); miniCtx.arc(e.x * sx, e.y * sy, 3.5, 0, Math.PI * 2); miniCtx.fill(); }
+  // 加油站：黄橙色方点（爆炸后变灰）
+  for (const gs of GAS_STATIONS) {
+    miniCtx.fillStyle = gs.exploded ? '#444' : '#ff8800';
+    miniCtx.fillRect(gs.x * sx - 2.5, gs.y * sy - 2.5, 5, 5);
+  }
   // 空投：金色闪烁点
   for (const a of game.airdrops) { if (a.taken) continue; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(a.x * sx, a.y * sy, 3.5, 0, Math.PI * 2); miniCtx.fill(); }
   // 龙卷风：红色危险标记
@@ -2083,7 +2492,17 @@ document.getElementById('choice-steal').addEventListener('click', () => {
 });
 document.getElementById('choice-upgrade').addEventListener('click', () => { game.player.level = Math.min(10, game.player.level + 1); closeChoicePanel(); eliminateLastDefeated(); });
 function closeChoicePanel() { document.getElementById('choice-panel').style.display = 'none'; game.state = 'playing'; }
-function eliminateLastDefeated() { if (game._lastDefeated) { game._lastDefeated.alive = false; game._lastDefeated = null; } }
+function eliminateLastDefeated() {
+  if (game._lastDefeated) {
+    // 玩家1v1胜利淘汰对手 -> 计入击杀数与击杀提示
+    const loser = game._lastDefeated;
+    game._lastDefeated = null;
+    if (loser.alive) {
+      addKillFeed(game.player, loser, '1v1');
+      loser.alive = false;
+    }
+  }
+}
 
 document.getElementById('restart-btn').addEventListener('click', () => {
   document.getElementById('end-screen').style.display = 'none';
