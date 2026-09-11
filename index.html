@@ -602,8 +602,6 @@ class Car {
     if (pointInPuddle(this.x, this.y)) { speedMul = 0.45; this.speed *= 0.97; }
     // 天气：雨天打滑（转向迟钝 + 轻微减速）
     if (game.weather === 'rain') { speedMul *= 0.85; if (Math.abs(this.speed) > 5 && Math.random() < 0.02) this.angle += (Math.random() - 0.5) * 0.3; }
-    // 连击 buff：玩家氮气加速
-    if (this.isPlayer && game.killCombo.buff > 0) { speedMul *= 1.4; }
     const vx = Math.cos(this.angle) * this.speed * speedMul;
     const vy = Math.sin(this.angle) * this.speed * speedMul;
     const oldX = this.x, oldY = this.y;
@@ -629,20 +627,122 @@ class Car {
   draw(ctx) {
     if (!this.alive) return;
     ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+    const W = this.w, H = this.h;  // W=26 宽, H=40 长（沿车头方向）
     const bright = 0.4 + this.level * 0.06;
-    if (this.level >= 6) { ctx.fillStyle = `rgba(255,255,200,0.3)`; ctx.beginPath(); ctx.arc(this.h / 2, 0, 10, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = this.color; ctx.fillRect(-this.h / 2, -this.w / 2, this.h, this.w);
-    ctx.strokeStyle = `rgba(255,255,255,${0.4 + bright * 0.3})`; ctx.lineWidth = 1.5;
-    ctx.strokeRect(-this.h / 2, -this.w / 2, this.h, this.w);
-    ctx.fillStyle = '#222'; ctx.beginPath();
-    ctx.arc(this.h / 2 - 4, -this.w / 2 + 3, 3, 0, Math.PI * 2);
-    ctx.arc(this.h / 2 - 4, this.w / 2 - 3, 3, 0, Math.PI * 2);
+
+    // 地面阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(2, 3, H * 0.55, W * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+
+    // 高等级光晕（Lv6+）
+    if (this.level >= 6) {
+      const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, H * 0.8);
+      glow.addColorStop(0, `rgba(255,255,200,${0.3 + this.level * 0.02})`);
+      glow.addColorStop(1, 'rgba(255,255,200,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, H * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // ===== 车轮（4个，深色，带轮毂） =====
+    ctx.fillStyle = '#1a1a1a';
+    const wheelW = 5, wheelH = 8, wheelOffX = W / 2 - 1;
+    // 前左、前右、后左、后右
+    ctx.fillRect(H/2 - wheelH - 2, -wheelOffX, wheelH, wheelW);
+    ctx.fillRect(H/2 - wheelH - 2, wheelOffX - wheelW, wheelH, wheelW);
+    ctx.fillRect(-H/2 + 2, -wheelOffX, wheelH, wheelW);
+    ctx.fillRect(-H/2 + 2, wheelOffX - wheelW, wheelH, wheelW);
+    // 轮毂高光
+    ctx.fillStyle = '#555';
+    ctx.fillRect(H/2 - wheelH + 1, -wheelOffX + 1, wheelH - 2, 1);
+    ctx.fillRect(H/2 - wheelH + 1, wheelOffX - wheelW + 1, wheelH - 2, 1);
+    ctx.fillRect(-H/2 + 3, -wheelOffX + 1, wheelH - 2, 1);
+    ctx.fillRect(-H/2 + 3, wheelOffX - wheelW + 1, wheelH - 2, 1);
+
+    // ===== 车身主体（圆角矩形） =====
+    const bodyGrad = ctx.createLinearGradient(-W/2, 0, W/2, 0);
+    bodyGrad.addColorStop(0, this.shadeColor(this.color, -25));
+    bodyGrad.addColorStop(0.5, this.color);
+    bodyGrad.addColorStop(1, this.shadeColor(this.color, -35));
+    ctx.fillStyle = bodyGrad;
+    this.roundRect(ctx, -H/2, -W/2, H, W, 5);
     ctx.fill();
+
+    // 车身顶部高光带
+    ctx.fillStyle = `rgba(255,255,255,${0.15 + bright * 0.1})`;
+    this.roundRect(ctx, -H/2 + 2, -W/2 + 1, H - 4, 3, 2);
+    ctx.fill();
+
+    // 车身底部阴影带
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    this.roundRect(ctx, -H/2 + 2, W/2 - 4, H - 4, 3, 2);
+    ctx.fill();
+
+    // ===== 车顶/驾驶舱（中央梯形） =====
+    const cabinH = H * 0.4, cabinW = W * 0.72;
+    const cabinGrad = ctx.createLinearGradient(-cabinW/2, 0, cabinW/2, 0);
+    cabinGrad.addColorStop(0, this.shadeColor(this.color, -15));
+    cabinGrad.addColorStop(0.5, this.shadeColor(this.color, 10));
+    cabinGrad.addColorStop(1, this.shadeColor(this.color, -20));
+    ctx.fillStyle = cabinGrad;
+    ctx.beginPath();
+    ctx.moveTo(-cabinH/2 + 2, -cabinW/2);
+    ctx.lineTo(cabinH/2 - 2, -cabinW/2);
+    ctx.lineTo(cabinH/2 - 4, cabinW/2);
+    ctx.lineTo(-cabinH/2 + 4, cabinW/2);
+    ctx.closePath(); ctx.fill();
+
+    // ===== 挡风玻璃（前 + 后，深色玻璃） =====
+    ctx.fillStyle = 'rgba(30,50,70,0.85)';
+    // 前挡风（梯形）
+    ctx.beginPath();
+    ctx.moveTo(2, -cabinW/2 + 2);
+    ctx.lineTo(cabinH/2 - 4, -cabinW/2 + 4);
+    ctx.lineTo(cabinH/2 - 4, cabinW/2 - 4);
+    ctx.lineTo(2, cabinW/2 - 2);
+    ctx.closePath(); ctx.fill();
+    // 后挡风
+    ctx.beginPath();
+    ctx.moveTo(-2, -cabinW/2 + 2);
+    ctx.lineTo(-cabinH/2 + 4, -cabinW/2 + 4);
+    ctx.lineTo(-cabinH/2 + 4, cabinW/2 - 4);
+    ctx.lineTo(-2, cabinW/2 - 2);
+    ctx.closePath(); ctx.fill();
+    // 玻璃高光
+    ctx.fillStyle = 'rgba(180,220,255,0.25)';
+    ctx.beginPath();
+    ctx.moveTo(4, -cabinW/2 + 3);
+    ctx.lineTo(cabinH/2 - 5, -cabinW/2 + 5);
+    ctx.lineTo(cabinH/2 - 5, -cabinW/2 + 6);
+    ctx.lineTo(4, -cabinW/2 + 4);
+    ctx.closePath(); ctx.fill();
+
+    // ===== 车头灯（前方两个） =====
+    ctx.fillStyle = 'rgba(255,255,200,0.95)';
+    ctx.beginPath(); ctx.arc(H/2 - 3, -W/2 + 5, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(H/2 - 3, W/2 - 5, 2.5, 0, Math.PI * 2); ctx.fill();
+    // 灯光高光
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.arc(H/2 - 3, -W/2 + 5, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(H/2 - 3, W/2 - 5, 1, 0, Math.PI * 2); ctx.fill();
+
+    // ===== 尾灯（后方两个，红色） =====
+    ctx.fillStyle = 'rgba(220,40,40,0.9)';
+    ctx.fillRect(-H/2 + 1, -W/2 + 3, 2.5, 4);
+    ctx.fillRect(-H/2 + 1, W/2 - 7, 2.5, 4);
+
+    // ===== 车身轮廓 =====
+    ctx.strokeStyle = `rgba(0,0,0,${0.5})`; ctx.lineWidth = 1.5;
+    this.roundRect(ctx, -H/2, -W/2, H, W, 5);
+    ctx.stroke();
+
     ctx.restore();
+
+    // ===== 玩家头顶三角标识 =====
     if (this.isPlayer) {
       ctx.fillStyle = '#6cf'; ctx.beginPath();
       ctx.moveTo(this.x, this.y - 32); ctx.lineTo(this.x - 5, this.y - 42); ctx.lineTo(this.x + 5, this.y - 42); ctx.closePath(); ctx.fill();
     }
+
+    // ===== 等级徽章 =====
     ctx.save();
     let badgeColor;
     if (this.level >= 10) badgeColor = '#ffd700';
@@ -654,7 +754,8 @@ class Car {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = '#000'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(String(this.level), this.x, badgeY);
-    // 车头名字标签
+
+    // ===== 名字标签 =====
     const nameY = badgeY - 14;
     ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const nameW = ctx.measureText(this.name).width + 8;
@@ -664,6 +765,30 @@ class Car {
     ctx.fillStyle = '#fff';
     ctx.fillText(this.name, this.x, nameY);
     ctx.restore();
+  }
+
+  // 辅助：圆角矩形路径
+  roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // 辅助：颜色加深/变亮
+  shadeColor(hex, percent) {
+    const num = parseInt(hex.replace('#', ''), 16);
+    let r = (num >> 16) + percent;
+    let g = ((num >> 8) & 0x00FF) + percent;
+    let b = (num & 0x0000FF) + percent;
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
   }
 }
 
@@ -733,11 +858,9 @@ function initGame() {
     dropTimer: 0, countdownText: '', countdownTimer: 0,
     aiDuels: [],
     // 空投补给系统
-    airdrops: [], airdropTimer: 15,
+    airdrops: [], airdropTimer: 15, airdropCount: 0,
     // 天气系统
     weather: 'clear', weatherTimer: 25, weatherTransition: 0, rainDrops: [],
-    // 击杀连击系统
-    killCombo: { count: 0, timer: 0, buff: 0 },
   };
 }
 
@@ -768,15 +891,6 @@ function showEndScreen(win, desc) {
 }
 
 function addKillFeed(winner, loser, reason) {
-  // 玩家击杀触发连击系统
-  if (winner && winner.isPlayer && loser && !loser.isPlayer) {
-    game.killCombo.count += 1;
-    game.killCombo.timer = 8; // 8秒内连续击杀才算连击
-    if (game.killCombo.count >= 2) {
-      game.killCombo.buff = 5; // 5秒加速 buff
-      addKillFeed(null, null, `${game.killCombo.count} 连击！氮气加速激活！`);
-    }
-  }
   const feed = document.getElementById('kill-feed');
   const msg = document.createElement('div');
   msg.className = 'kill-msg';
@@ -889,11 +1003,12 @@ function update(dt) {
 
   // ===== 空投补给系统 =====
   game.airdropTimer += dt;
-  if (game.airdropTimer > 30 && game.airdrops.filter(a => !a.landed).length < 2) {
+  if (game.airdropTimer > 30 && game.airdropCount < 3) {
     game.airdropTimer = 0;
+    game.airdropCount += 1;
     const p = randomPointOnRoad(null, game.zone);
     game.airdrops.push({ x: p.x, y: p.y, level: 7 + Math.floor(Math.random() * 4), landed: false, fallY: -800, fallSpeed: 0, t: 0, taken: false });
-    addKillFeed(null, null, '空投补给到达！争夺稀有高级车包！');
+    addKillFeed(null, null, `空投补给到达！(${game.airdropCount}/3)`);
   }
   for (const a of game.airdrops) {
     if (a.taken) continue;
@@ -938,13 +1053,6 @@ function update(dt) {
     r.y += r.vy * dt;
     if (r.y > canvas.height + 20) { if (game.weather === 'rain') { r.y = -10; r.x = Math.random() * canvas.width; } else game.rainDrops.splice(i, 1); }
   }
-
-  // ===== 击杀连击系统 =====
-  if (game.killCombo.timer > 0) {
-    game.killCombo.timer -= dt;
-    if (game.killCombo.timer <= 0) { game.killCombo.count = 0; game.killCombo.buff = 0; }
-  }
-  if (game.killCombo.buff > 0) game.killCombo.buff -= dt;
 
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
@@ -1555,23 +1663,6 @@ function drawHUD() {
   ctx.fillStyle = wColor[game.weather];
   ctx.fillText(wIcons[game.weather] + ' ' + wNames[game.weather], canvas.width - 12, 138);
   ctx.restore();
-  // 连击计数器（左下角）
-  if (game.killCombo.count >= 2) {
-    ctx.save();
-    const x = 12, y = canvas.height - 60;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x, y, 110, 42);
-    ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 2; ctx.strokeRect(x, y, 110, 42);
-    ctx.fillStyle = '#ff8c00'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(`${game.killCombo.count} 连击!`, x + 8, y + 4);
-    if (game.killCombo.buff > 0) {
-      ctx.fillStyle = '#00e5ff'; ctx.font = 'bold 11px sans-serif';
-      ctx.fillText(`氮气 ${Math.ceil(game.killCombo.buff)}s`, x + 8, y + 26);
-    } else {
-      ctx.fillStyle = '#aaa'; ctx.font = '10px sans-serif';
-      ctx.fillText(`连击窗口 ${Math.ceil(game.killCombo.timer)}s`, x + 8, y + 26);
-    }
-    ctx.restore();
-  }
 }
 
 function drawMinimap() {
