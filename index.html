@@ -265,6 +265,8 @@ const MAPS = {
     vegColors: ['#1a4a1a','#2a5a2a','#1a3a1a','#2a4a2a','#1a5a2a'],
     puddleStyle: 'water',
     seed: 20240101,
+    zoneCenter: { x: WORLD.w * 0.5, y: WORLD.h * 0.5 },          // 固定安全圈中心
+    finalPoint: { x: WORLD.w * 0.78, y: WORLD.h * 0.22 },        // 固定决赛终点（东北）
   },
   terafab: {
     name: 'Terafab Texas', desc: '德州超级工厂',
@@ -277,6 +279,8 @@ const MAPS = {
     puddleStyle: 'reflection',
     factoryDensity: 0.55, factoryScale: 2.8,
     seed: 20260910,
+    zoneCenter: { x: WORLD.w * 0.5, y: WORLD.h * 0.5 },
+    finalPoint: { x: WORLD.w * 0.22, y: WORLD.h * 0.78 },        // 固定决赛终点（西南，与田野对称）
   },
 };
 
@@ -635,10 +639,10 @@ function initGame() {
 
   const diff = DIFFICULTY[currentDifficulty];
   const player = new Car(WORLD.w / 2, WORLD.h / 2, '#3399ff', 2, true);
-  // 先创建安全区，确保 AI 和车包都出生在安全区内
+  // 先创建安全区，使用地图固定中心
   const zone = {
-    cx: WORLD.w / 2 + (Math.random() - 0.5) * 800,
-    cy: WORLD.h / 2 + (Math.random() - 0.5) * 800,
+    cx: MAP.zoneCenter.x,
+    cy: MAP.zoneCenter.y,
     radius: 8000, shrinkTimer: 0,
     shrinkInterval: diff.shrinkInterval, shrinkAmount: diff.shrinkAmount, minRadius: 400,
   };
@@ -801,13 +805,8 @@ function update(dt) {
   game.drops = game.drops.filter(d => !d.taken || d.particles.length > 0);
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
-    // 终点设在安全圈外的随机方向
-    const ang = Math.random() * Math.PI * 2;
-    const distOut = game.zone.radius + 1500 + Math.random() * 1000;
-    game.finalPoint = {
-      x: Math.max(300, Math.min(WORLD.w - 300, game.zone.cx + Math.cos(ang) * distOut)),
-      y: Math.max(300, Math.min(WORLD.h - 300, game.zone.cy + Math.sin(ang) * distOut))
-    };
+    // 终点使用地图固定坐标（每局一致）
+    game.finalPoint = { x: MAP.finalPoint.x, y: MAP.finalPoint.y };
     // 毒圈消失
     game.zone.radius = Infinity;
     const fb = document.getElementById('final-banner'); fb.textContent = '终点已在圈外开启！全速冲向终点！'; fb.style.display = 'block';
