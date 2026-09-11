@@ -1004,6 +1004,8 @@ function initGame() {
     weather: 'clear', weatherTimer: 25, weatherTransition: 0, rainDrops: [],
     // 计时器
     elapsed: 0,
+    // 龙卷风系统
+    tornadoes: [], tornadoTimer: 20,
   };
 }
 
@@ -1219,6 +1221,65 @@ function update(dt) {
     }
   }
 
+  // ===== 龙卷风系统 =====
+  game.tornadoTimer += dt;
+  // 每25-40秒生成一个龙卷风，场上最多2个
+  if (game.tornadoTimer > 25 + Math.random() * 15 && game.tornadoes.length < 2 && !game.finalPhase) {
+    game.tornadoTimer = 0;
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 2500 + Math.random() * 2000;
+    const tx = Math.max(500, Math.min(WORLD.w - 500, game.zone.cx + Math.cos(angle) * dist));
+    const ty = Math.max(500, Math.min(WORLD.h - 500, game.zone.cy + Math.sin(angle) * dist));
+    game.tornadoes.push({
+      x: tx, y: ty,
+      vx: (Math.random() - 0.5) * 80, vy: (Math.random() - 0.5) * 80,
+      radius: 60, killRadius: 35, life: 30 + Math.random() * 20, t: 0,
+      dirChangeTimer: 0,
+    });
+    addKillFeed(null, null, '⚠ 龙卷风出现！远离它的路径！');
+  }
+  for (const tw of game.tornadoes) {
+    tw.t += dt;
+    tw.life -= dt;
+    // 移动 + 偶尔变向
+    tw.dirChangeTimer += dt;
+    if (tw.dirChangeTimer > 3) {
+      tw.dirChangeTimer = 0;
+      tw.vx += (Math.random() - 0.5) * 60;
+      tw.vy += (Math.random() - 0.5) * 60;
+      const sp = Math.hypot(tw.vx, tw.vy);
+      if (sp > 120) { tw.vx = tw.vx / sp * 120; tw.vy = tw.vy / sp * 120; }
+    }
+    tw.x += tw.vx * dt; tw.y += tw.vy * dt;
+    // 边界反弹
+    if (tw.x < 300) { tw.x = 300; tw.vx = Math.abs(tw.vx); }
+    if (tw.x > WORLD.w - 300) { tw.x = WORLD.w - 300; tw.vx = -Math.abs(tw.vx); }
+    if (tw.y < 300) { tw.y = 300; tw.vy = Math.abs(tw.vy); }
+    if (tw.y > WORLD.h - 300) { tw.y = WORLD.h - 300; tw.vy = -Math.abs(tw.vy); }
+    // 影响车辆
+    for (const c of allCars) {
+      if (!c.alive) continue;
+      const d = Math.hypot(c.x - tw.x, c.y - tw.y);
+      if (d < tw.radius) {
+        // 吸力：把车往龙卷风中心拉 + 旋转
+        const pullForce = (1 - d / tw.radius) * 300;
+        const ang = Math.atan2(tw.y - c.y, tw.x - c.x);
+        c.x += Math.cos(ang) * pullForce * dt;
+        c.y += Math.sin(ang) * pullForce * dt;
+        // 车辆旋转
+        c.angle += dt * 6 * (1 - d / tw.radius);
+        c.speed *= 0.7;
+      }
+      if (d < tw.killRadius) {
+        // 被龙卷风吞噬
+        c.alive = false;
+        if (c.isPlayer) showEndScreen(false, '你被龙卷风卷走了！');
+        else addKillFeed(null, c, '龙卷风');
+      }
+    }
+  }
+  game.tornadoes = game.tornadoes.filter(t => t.life > 0);
+
   if (!game.finalPhase && allCars.length <= 5) {
     game.finalPhase = true; game.state = 'final';
     // 终点使用地图固定坐标（每局一致）
@@ -1258,8 +1319,15 @@ function updateAI(ai, dt) {
     for (const d of game.drops) { if (d.taken) continue; const dist = Math.hypot(d.x - ai.x, d.y - ai.y); if (dist < nd) { nd = dist; nearestDrop = d; } }
     // 也寻找已着陆的空投（更大范围 800）
     for (const a of game.airdrops) { if (!a.landed || a.taken) continue; const dist = Math.hypot(a.x - ai.x, a.y - ai.y); if (dist < 800 && dist < nd) { nd = dist; nearestDrop = a; } }
+    // 躲避龙卷风：150范围内逃离
+    let fleeTornado = null;
+    for (const tw of game.tornadoes) {
+      const td = Math.hypot(tw.x - ai.x, tw.y - ai.y);
+      if (td < 150) { fleeTornado = tw; break; }
+    }
     const seekChance = DIFFICULTY[currentDifficulty].aiSeekPlayerChance;
-    if (game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
+    if (fleeTornado) { ai.aiSeekPlayer = false; ai.aiTarget = { x: ai.x + (ai.x - fleeTornado.x) * 2, y: ai.y + (ai.y - fleeTornado.y) * 2 }; }
+    else if (game.player.alive && Math.random() < seekChance) { ai.aiSeekPlayer = true; ai.aiTarget = { x: game.player.x, y: game.player.y }; }
     else if (nearestDrop) { ai.aiSeekPlayer = false; ai.aiTarget = { x: nearestDrop.x, y: nearestDrop.y }; }
     else { ai.aiSeekPlayer = false; ai.aiTarget = { x: 200 + Math.random() * (WORLD.w - 400), y: 200 + Math.random() * (WORLD.h - 400) }; }
   }
@@ -1407,6 +1475,50 @@ function drawWeatherOverlay() {
   }
 }
 
+// ===== 龙卷风渲染 =====
+function drawTornadoes(x0, y0, x1, y1) {
+  for (const tw of game.tornadoes) {
+    if (tw.x + 100 < x0 || tw.x - 100 > x1 || tw.y + 120 < y0 || tw.y - 20 > y1) continue;
+    const t = tw.t;
+    // 底部阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(tw.x, tw.y + 5, tw.radius * 1.1, tw.radius * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    // 龙卷风漏斗：多层旋转环
+    const layers = 8;
+    for (let i = 0; i < layers; i++) {
+      const ratio = i / (layers - 1); // 0底 -> 1顶
+      const yOff = -ratio * 110; // 高度110
+      const r = tw.radius * (1 - ratio * 0.6); // 上细下粗
+      const spin = t * 4 + i * 0.5;
+      // 旋转的椭圆环
+      ctx.save();
+      ctx.translate(tw.x, tw.y + yOff);
+      ctx.rotate(spin);
+      // 灰白渐变
+      const gray = 180 - ratio * 60;
+      ctx.fillStyle = `rgba(${gray},${gray-10},${gray-20},${0.5 - ratio * 0.2})`;
+      ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+      // 深色内圈
+      ctx.fillStyle = `rgba(80,70,60,${0.4 - ratio * 0.15})`;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 0.6, r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    // 飞舞碎片粒子
+    ctx.fillStyle = 'rgba(120,100,80,0.7)';
+    for (let i = 0; i < 12; i++) {
+      const a = t * 3 + i * (Math.PI * 2 / 12);
+      const h = -10 - (i % 4) * 25;
+      const pr = tw.radius * (0.5 + Math.sin(t * 2 + i) * 0.4);
+      ctx.fillRect(tw.x + Math.cos(a) * pr - 1.5, tw.y + h + Math.sin(t + i) * 5, 3, 2);
+    }
+    // 顶部尘埃云
+    ctx.fillStyle = 'rgba(160,140,110,0.3)';
+    ctx.beginPath(); ctx.arc(tw.x, tw.y - 115, tw.radius * 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(140,120,90,0.2)';
+    ctx.beginPath(); ctx.arc(tw.x + 5, tw.y - 118, tw.radius * 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
 function render() {
   ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.save(); ctx.translate(canvas.width / 2, canvas.height / 2); ctx.scale(CAM_ZOOM, CAM_ZOOM); ctx.translate(-game.cam.x, -game.cam.y);
@@ -1414,6 +1526,7 @@ function render() {
   if (game.finalPhase) drawFinalPoint();
   for (const d of game.drops) d.draw(ctx);
   for (const a of game.airdrops) drawAirdrop(a);
+  drawTornadoes(x0, y0, x1, y1);
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase !== 'done') drawCheckpoint(game.h2h.checkpoint);
   for (const d of game.aiDuels) { drawAIDuelCheckpoint(d.checkpoint, d.a.color, d.b.color); }
   for (const c of game.allCars()) c.draw(ctx);
@@ -1876,6 +1989,11 @@ function drawMinimap() {
   for (const d of game.drops) { if (d.taken) continue; miniCtx.fillStyle = '#bb5cff'; miniCtx.fillRect(d.x * sx - 1.5, d.y * sy - 1.5, 3, 3); }
   // 空投：金色闪烁点
   for (const a of game.airdrops) { if (a.taken) continue; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(a.x * sx, a.y * sy, 3.5, 0, Math.PI * 2); miniCtx.fill(); }
+  // 龙卷风：红色危险标记
+  for (const tw of game.tornadoes) {
+    miniCtx.fillStyle = 'rgba(255,50,50,0.3)'; miniCtx.beginPath(); miniCtx.arc(tw.x * sx, tw.y * sy, tw.radius * sx, 0, Math.PI * 2); miniCtx.fill();
+    miniCtx.fillStyle = '#ff3030'; miniCtx.beginPath(); miniCtx.arc(tw.x * sx, tw.y * sy, 3, 0, Math.PI * 2); miniCtx.fill();
+  }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   for (const d of game.aiDuels) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
   if (game.finalPhase) { miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(game.finalPoint.x * sx, game.finalPoint.y * sy, 4, 0, Math.PI * 2); miniCtx.fill(); }
