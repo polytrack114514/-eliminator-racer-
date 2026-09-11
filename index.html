@@ -601,21 +601,30 @@ class Car {
     }
     let speedMul = 1;
     if (pointInPuddle(this.x, this.y)) { speedMul = 0.45; this.speed *= 0.97; }
-    // 天气影响增强
+    // 天气影响大幅增强
     if (game.weather === 'rain') {
-      speedMul *= 0.8;
-      if (Math.abs(this.speed) > 5 && Math.random() < 0.03) this.angle += (Math.random() - 0.5) * 0.4;
-    } else if (game.weather === 'storm') {
-      // 沙尘暴：速度大幅下降 + 横向风扰动
+      // 暴雨：速度大降 + 连续打滑 + 加速衰减
       speedMul *= 0.7;
-      if (Math.abs(this.speed) > 3 && Math.random() < 0.05) this.angle += (Math.random() - 0.5) * 0.35;
+      this.speed *= 0.995; // 持续减速
+      if (Math.abs(this.speed) > 4 && Math.random() < 0.05) this.angle += (Math.random() - 0.5) * 0.6;
+    } else if (game.weather === 'storm') {
+      // 沙尘暴：速度暴跌 + 强横向风推力 + 频繁打滑
+      speedMul *= 0.6;
+      if (Math.abs(this.speed) > 2 && Math.random() < 0.08) this.angle += (Math.random() - 0.5) * 0.5;
+      // 横向风力推动车辆（固定方向）
+      const windAng = Math.PI * 0.25; // 东北风
+      const windForce = 40;
+      this.x += Math.cos(windAng) * windForce * dt;
+      this.y += Math.sin(windAng) * windForce * dt;
     } else if (game.weather === 'hail') {
-      // 冰雹：打滑 + 偶尔减速冲击
-      speedMul *= 0.85;
-      if (Math.abs(this.speed) > 5 && Math.random() < 0.04) {
-        this.angle += (Math.random() - 0.5) * 0.3;
-        this.speed *= 0.9; // 冰雹冲击减速
+      // 冰雹：打滑 + 频繁减速冲击 + 偶发大冲击
+      speedMul *= 0.8;
+      if (Math.abs(this.speed) > 4 && Math.random() < 0.06) {
+        this.angle += (Math.random() - 0.5) * 0.5;
+        this.speed *= 0.85;
       }
+      // 偶发大冲击：5%概率急停
+      if (Math.random() < 0.005) { this.speed *= 0.5; this.angle += (Math.random() - 0.5) * 1.0; }
     }
     const vx = Math.cos(this.angle) * this.speed * speedMul;
     const vy = Math.sin(this.angle) * this.speed * speedMul;
@@ -1415,62 +1424,102 @@ function drawHeadlights() {
 function drawWeatherOverlay() {
   const trans = game.weatherTransition > 0 ? (2 - game.weatherTransition) / 2 : 1;
   if (game.weather === 'rain') {
-    // 雨幕（增强）
-    ctx.fillStyle = `rgba(40,60,90,${0.2 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = `rgba(180,200,230,${0.7 * trans})`; ctx.lineWidth = 1.5;
+    // 暴雨：深色雨幕 + 雨滴 + 水花 + 闪电
+    ctx.fillStyle = `rgba(30,50,80,${0.28 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = `rgba(180,210,240,${0.85 * trans})`; ctx.lineWidth = 2;
     for (const r of game.rainDrops) {
-      ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x - 3, r.y + r.len); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(r.x - 4, r.y + r.len); ctx.stroke();
     }
-    // 偶发闪电
-    if (Math.random() < 0.005) {
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 地面水花
+    ctx.fillStyle = `rgba(150,180,210,${0.4 * trans})`;
+    for (let i = 0; i < 30; i++) {
+      const sx = (i * 67 + performance.now() * 0.1) % canvas.width;
+      const sy = (i * 131 + performance.now() * 0.15) % canvas.height;
+      ctx.beginPath(); ctx.arc(sx, sy, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // 频繁闪电
+    if (Math.random() < 0.008) {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
   } else if (game.weather === 'fog') {
-    // 雾气覆盖（视野更短）
-    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 30, canvas.width/2, canvas.height/2, canvas.width * 0.4);
+    // 浓雾：视野极短 + 多层雾
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 20, canvas.width/2, canvas.height/2, canvas.width * 0.32);
     grad.addColorStop(0, 'rgba(200,200,210,0)');
-    grad.addColorStop(0.3, `rgba(200,200,210,${0.3 * trans})`);
-    grad.addColorStop(1, `rgba(180,180,200,${0.85 * trans})`);
+    grad.addColorStop(0.25, `rgba(200,200,210,${0.4 * trans})`);
+    grad.addColorStop(1, `rgba(170,170,190,${0.92 * trans})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 飘动雾团
+    const t = performance.now() / 1000;
+    ctx.fillStyle = `rgba(220,220,230,${0.1 * trans})`;
+    for (let i = 0; i < 5; i++) {
+      const fx = (i * 200 + t * 20) % (canvas.width + 100) - 50;
+      const fy = (i * 150 + t * 15) % (canvas.height + 100) - 50;
+      ctx.beginPath(); ctx.arc(fx, fy, 60, 0, Math.PI * 2); ctx.fill();
+    }
   } else if (game.weather === 'night') {
-    // 夜晚黑暗（更黑）
-    ctx.fillStyle = `rgba(5,10,25,${0.75 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 玩家周围微光
-    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, 130);
-    grad.addColorStop(0, `rgba(100,120,160,${0.25 * trans})`);
+    // 夜晚：极黑 + 微光 + 星星
+    ctx.fillStyle = `rgba(2,5,15,${0.85 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, 100);
+    grad.addColorStop(0, `rgba(80,100,140,${0.2 * trans})`);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  } else if (game.weather === 'storm') {
-    // 沙尘暴：黄褐色覆盖 + 横向飞沙粒子 + 强烈模糊
-    ctx.fillStyle = `rgba(150,100,40,${0.4 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = `rgba(180,130,60,${0.25 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 飞沙粒子
-    const t = performance.now() / 1000;
-    ctx.fillStyle = `rgba(200,160,80,${0.6 * trans})`;
-    for (let i = 0; i < 80; i++) {
-      const px = (i * 137 + t * 300) % canvas.width;
-      const py = (i * 73 + t * 80) % canvas.height;
-      ctx.fillRect(px, py, 3, 1.5);
+    // 星星点缀
+    ctx.fillStyle = `rgba(255,255,255,${0.5 * trans})`;
+    for (let i = 0; i < 15; i++) {
+      const sx = (i * 89) % canvas.width;
+      const sy = (i * 53) % (canvas.height * 0.5);
+      const tw = 0.5 + Math.sin(performance.now() * 0.003 + i) * 0.5;
+      ctx.globalAlpha = tw * trans;
+      ctx.fillRect(sx, sy, 1, 1);
     }
-    // 边缘暗角
-    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.width*0.2, canvas.width/2, canvas.height/2, canvas.width*0.6);
+    ctx.globalAlpha = 1;
+  } else if (game.weather === 'storm') {
+    // 沙尘暴：浓黄褐 + 密集飞沙 + 强暗角 + 屏幕震动
+    const shake = Math.sin(performance.now() * 0.05) * 2 * trans;
+    ctx.save(); ctx.translate(shake, shake);
+    ctx.fillStyle = `rgba(140,90,30,${0.5 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `rgba(170,120,50,${0.3 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 密集飞沙
+    const t = performance.now() / 1000;
+    ctx.fillStyle = `rgba(210,170,90,${0.8 * trans})`;
+    for (let i = 0; i < 150; i++) {
+      const px = (i * 137 + t * 500) % canvas.width;
+      const py = (i * 73 + t * 120) % canvas.height;
+      ctx.fillRect(px, py, 4, 2);
+    }
+    ctx.fillStyle = `rgba(180,130,60,${0.5 * trans})`;
+    for (let i = 0; i < 80; i++) {
+      const px = (i * 211 + t * 350) % canvas.width;
+      const py = (i * 97 + t * 90) % canvas.height;
+      ctx.fillRect(px, py, 6, 3);
+    }
+    const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, canvas.width*0.15, canvas.width/2, canvas.height/2, canvas.width*0.55);
     grad.addColorStop(0, 'rgba(100,60,20,0)');
-    grad.addColorStop(1, `rgba(80,50,10,${0.5 * trans})`);
+    grad.addColorStop(1, `rgba(60,40,10,${0.65 * trans})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
   } else if (game.weather === 'hail') {
-    // 冰雹：冷色调覆盖 + 冰雹粒子 + 积水反光
-    ctx.fillStyle = `rgba(60,80,100,${0.18 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 冰雹粒子
-    ctx.fillStyle = `rgba(220,230,240,${0.9 * trans})`;
+    // 冰雹：冷色 + 冰雹粒子 + 地面反光 + 冰晶闪烁
+    ctx.fillStyle = `rgba(50,75,100,${0.25 * trans})`; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `rgba(220,235,250,${0.95 * trans})`;
     if (game.hailStones) {
       for (const h of game.hailStones) {
         ctx.beginPath(); ctx.arc(h.x, h.y, h.size, 0, Math.PI * 2); ctx.fill();
       }
     }
+    // 冰晶闪烁
+    ctx.fillStyle = `rgba(255,255,255,${0.6 * trans})`;
+    for (let i = 0; i < 10; i++) {
+      const sx = (i * 89 + performance.now() * 0.2) % canvas.width;
+      const sy = (i * 53 + performance.now() * 0.3) % canvas.height;
+      ctx.globalAlpha = (0.3 + Math.sin(performance.now() * 0.005 + i) * 0.3) * trans;
+      ctx.beginPath(); ctx.arc(sx, sy, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     // 地面湿滑反光
-    const grad = ctx.createLinearGradient(0, canvas.height * 0.6, 0, canvas.height);
+    const grad = ctx.createLinearGradient(0, canvas.height * 0.5, 0, canvas.height);
     grad.addColorStop(0, 'rgba(100,130,160,0)');
-    grad.addColorStop(1, `rgba(120,150,180,${0.15 * trans})`);
+    grad.addColorStop(1, `rgba(130,160,190,${0.2 * trans})`);
     ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 }
