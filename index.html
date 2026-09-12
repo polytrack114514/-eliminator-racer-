@@ -491,55 +491,35 @@ function spawnEMPDrop() {
   addKillFeed(null, null, 'EMP 干扰弹已空投！地图上显示蓝色标记');
 }
 
-// ===== 直升机巡逻系统（游戏开始即生成） =====
-function spawnHelicopter() {
+// ===== 直升机巡逻系统（游戏开始即生成2台，永久巡逻不离开） =====
+function spawnHelicopter(patrolOffset) {
   // 直升机在安全区边缘附近生成，立即可见
-  const angle = Math.random() * Math.PI * 2;
+  const angle = (patrolOffset !== undefined ? patrolOffset : Math.random() * Math.PI * 2);
   const dist = Math.min(game.zone.radius * 0.9, 1200);
   const x = game.zone.cx + Math.cos(angle) * dist;
   const y = game.zone.cy + Math.sin(angle) * dist;
-  game.helicopter = {
+  const heli = {
     x, y,
     angle: 0,
-    patrolAngle: angle + Math.PI,
+    patrolAngle: angle,
     patrolRadius: Math.min(game.zone.radius * 1.0, 1200),
-    altitude: 0,
     rotorAngle: 0,
     target: null,
     state: 'patrol',
-    shootCooldown: 5,
-    lifeTime: 0,
+    shootCooldown: 5 + Math.random() * 3,
   };
-  game.heliBullets = [];
-  addKillFeed(null, null, '🚁 武装直升机进入战场！注意扫射！');
+  game.helicopters.push(heli);
+  if (game.helicopters.length === 1) addKillFeed(null, null, '🚁 武装直升机进入战场！注意扫射！');
 }
 function updateHelicopter(dt) {
-  if (!game.helicopter) {
-    // 游戏开始就有直升机，被击落/离开后 25 秒重生
-    game.heliSpawnTimer += dt;
-    if (game.heliSpawnTimer > 25) {
-      game.heliSpawnTimer = 0;
-      spawnHelicopter();
-    }
-    return;
+  // 始终保持 2 台直升机
+  while (game.helicopters.length < 2) {
+    spawnHelicopter(game.helicopters.length === 0 ? 0 : Math.PI); // 两台对角分布
   }
-  const h = game.helicopter;
-  h.rotorAngle += dt * 35;
-  // 巡逻中心跟随当前安全区中心
   const cx = game.zone.cx, cy = game.zone.cy;
-  if (h.state === 'entering') {
-    // 飞向巡逻轨道
-    const tx = cx + Math.cos(h.patrolAngle) * h.patrolRadius;
-    const ty = cy + Math.sin(h.patrolAngle) * h.patrolRadius;
-    const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy);
-    if (d < 50) { h.state = 'patrol'; }
-    else {
-      const sp = 250;
-      h.x += dx / d * sp * dt;
-      h.y += dy / d * sp * dt;
-      h.angle = Math.atan2(dy, dx);
-    }
-  } else if (h.state === 'patrol') {
+  for (let hi = 0; hi < game.helicopters.length; hi++) {
+    const h = game.helicopters[hi];
+    h.rotorAngle += dt * 35;
     // 绕圈巡逻
     h.patrolAngle += dt * 0.4;
     const tx = cx + Math.cos(h.patrolAngle) * h.patrolRadius;
@@ -548,7 +528,7 @@ function updateHelicopter(dt) {
     h.x += dx * 3 * dt;
     h.y += dy * 3 * dt;
     h.angle = Math.atan2(dy, dx);
-    // 扫射：每 5 秒锁定区域内的一辆车，给玩家躲避时间
+    // 扫射：每 5-7 秒锁定区域内的一辆车，给玩家躲避时间
     h.shootCooldown -= dt;
     if (h.shootCooldown <= 0) {
       h.shootCooldown = 5 + Math.random() * 2;
@@ -596,29 +576,11 @@ function updateHelicopter(dt) {
       game.heliBullets.splice(i, 1);
     }
   }
-  // 直升机生存 60 秒后离开
-  h.lifeTime = (h.lifeTime || 0) + dt;
-  if (h.lifeTime > 60 && h.state === 'patrol') {
-    h.state = 'leaving';
-  }
-  if (h.state === 'leaving') {
-    const dx = h.x - cx, dy = h.y - cy, d = Math.hypot(dx, dy);
-    if (d < 50 || h.lifeTime > 75) game.helicopter = null;
-    else {
-      h.x += dx / d * 300 * dt;
-      h.y += dy / d * 300 * dt;
-      h.angle = Math.atan2(dy, dx);
-    }
-  }
 }
 
 // ===== 直升机渲染 =====
 function drawHelicopter() {
-  if (!game.helicopter) return;
-  const h = game.helicopter;
-  // 阴影（地面投影）
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath(); ctx.ellipse(h.x + 10, h.y + 10, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
+  if (!game.helicopters || game.helicopters.length === 0) return;
   // 子弹轨迹
   for (const b of game.heliBullets) {
     ctx.strokeStyle = 'rgba(255,220,80,0.7)'; ctx.lineWidth = 2;
@@ -630,67 +592,72 @@ function drawHelicopter() {
     ctx.fillStyle = '#ffaa00';
     ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.save();
-  ctx.translate(h.x, h.y);
-  ctx.rotate(h.angle);
-  // 机身
-  ctx.fillStyle = '#3a4a2a';
-  ctx.beginPath(); ctx.ellipse(0, 0, 24, 10, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#2a3a1a';
-  ctx.beginPath(); ctx.ellipse(-4, 0, 16, 8, 0, 0, Math.PI * 2); ctx.fill();
-  // 驾驶舱玻璃
-  ctx.fillStyle = 'rgba(120,180,220,0.85)';
-  ctx.beginPath(); ctx.ellipse(14, 0, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#1a2a0a'; ctx.lineWidth = 1.5; ctx.stroke();
-  // 尾梁
-  ctx.fillStyle = '#3a4a2a';
-  ctx.fillRect(-30, -2, 24, 4);
-  // 尾翼
-  ctx.fillStyle = '#2a3a1a';
-  ctx.fillRect(-32, -6, 4, 12);
-  // 武器挂架（机腹）
-  ctx.fillStyle = '#444';
-  ctx.fillRect(-4, 8, 8, 4);
-  ctx.fillRect(-2, 12, 4, 4);
-  // 主旋翼（旋转的圆盘效果）
-  ctx.save();
-  ctx.rotate(h.rotorAngle);
-  ctx.fillStyle = 'rgba(80,80,80,0.4)';
-  ctx.fillRect(-28, -1, 56, 2);
-  ctx.fillStyle = 'rgba(120,120,120,0.3)';
-  ctx.fillRect(-2, -28, 4, 56);
-  ctx.restore();
-  // 旋翼中心
-  ctx.fillStyle = '#222';
-  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
-  // 尾旋翼
-  ctx.save();
-  ctx.translate(-30, 0);
-  ctx.rotate(h.rotorAngle * 1.5);
-  ctx.fillStyle = 'rgba(80,80,80,0.4)';
-  ctx.fillRect(-6, -1, 12, 2);
-  ctx.restore();
-  // 警示灯
-  const blink = Math.floor(performance.now() / 300) % 2;
-  ctx.fillStyle = blink ? '#ff3030' : 'rgba(255,40,40,0.3)';
-  ctx.beginPath(); ctx.arc(-6, -8, 2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = blink ? 'rgba(40,255,40,0.3)' : '#30ff30';
-  ctx.beginPath(); ctx.arc(6, -8, 2, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-  // 锁定瞄准框
-  if (h.target && h.target.alive) {
-    const tg = h.target;
-    const pulse = 0.5 + Math.sin(performance.now() * 0.01) * 0.3;
-    ctx.strokeStyle = `rgba(255,40,40,${pulse})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(tg.x, tg.y, 30, 0, Math.PI * 2); ctx.stroke();
-    // 四角瞄准线
-    ctx.beginPath();
-    ctx.moveTo(tg.x - 35, tg.y); ctx.lineTo(tg.x - 25, tg.y);
-    ctx.moveTo(tg.x + 25, tg.y); ctx.lineTo(tg.x + 35, tg.y);
-    ctx.moveTo(tg.x, tg.y - 35); ctx.lineTo(tg.x, tg.y - 25);
-    ctx.moveTo(tg.x, tg.y + 25); ctx.lineTo(tg.x, tg.y + 35);
-    ctx.stroke();
+  for (const h of game.helicopters) {
+    // 阴影（地面投影）
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(h.x + 10, h.y + 10, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.translate(h.x, h.y);
+    ctx.rotate(h.angle);
+    // 机身
+    ctx.fillStyle = '#3a4a2a';
+    ctx.beginPath(); ctx.ellipse(0, 0, 24, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2a3a1a';
+    ctx.beginPath(); ctx.ellipse(-4, 0, 16, 8, 0, 0, Math.PI * 2); ctx.fill();
+    // 驾驶舱玻璃
+    ctx.fillStyle = 'rgba(120,180,220,0.85)';
+    ctx.beginPath(); ctx.ellipse(14, 0, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1a2a0a'; ctx.lineWidth = 1.5; ctx.stroke();
+    // 尾梁
+    ctx.fillStyle = '#3a4a2a';
+    ctx.fillRect(-30, -2, 24, 4);
+    // 尾翼
+    ctx.fillStyle = '#2a3a1a';
+    ctx.fillRect(-32, -6, 4, 12);
+    // 武器挂架（机腹）
+    ctx.fillStyle = '#444';
+    ctx.fillRect(-4, 8, 8, 4);
+    ctx.fillRect(-2, 12, 4, 4);
+    // 主旋翼（旋转的圆盘效果）
+    ctx.save();
+    ctx.rotate(h.rotorAngle);
+    ctx.fillStyle = 'rgba(80,80,80,0.4)';
+    ctx.fillRect(-28, -1, 56, 2);
+    ctx.fillStyle = 'rgba(120,120,120,0.3)';
+    ctx.fillRect(-2, -28, 4, 56);
+    ctx.restore();
+    // 旋翼中心
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    // 尾旋翼
+    ctx.save();
+    ctx.translate(-30, 0);
+    ctx.rotate(h.rotorAngle * 1.5);
+    ctx.fillStyle = 'rgba(80,80,80,0.4)';
+    ctx.fillRect(-6, -1, 12, 2);
+    ctx.restore();
+    // 警示灯
+    const blink = Math.floor(performance.now() / 300) % 2;
+    ctx.fillStyle = blink ? '#ff3030' : 'rgba(255,40,40,0.3)';
+    ctx.beginPath(); ctx.arc(-6, -8, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = blink ? 'rgba(40,255,40,0.3)' : '#30ff30';
+    ctx.beginPath(); ctx.arc(6, -8, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // 锁定瞄准框
+    if (h.target && h.target.alive) {
+      const tg = h.target;
+      const pulse = 0.5 + Math.sin(performance.now() * 0.01) * 0.3;
+      ctx.strokeStyle = `rgba(255,40,40,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(tg.x, tg.y, 30, 0, Math.PI * 2); ctx.stroke();
+      // 四角瞄准线
+      ctx.beginPath();
+      ctx.moveTo(tg.x - 35, tg.y); ctx.lineTo(tg.x - 25, tg.y);
+      ctx.moveTo(tg.x + 25, tg.y); ctx.lineTo(tg.x + 35, tg.y);
+      ctx.moveTo(tg.x, tg.y - 35); ctx.lineTo(tg.x, tg.y - 25);
+      ctx.moveTo(tg.x, tg.y + 25); ctx.lineTo(tg.x, tg.y + 35);
+      ctx.stroke();
+    }
   }
 }
 
@@ -1410,9 +1377,8 @@ function initGame() {
     elapsed: 0,
     // 龙卷风系统
     tornadoes: [], tornadoTimer: 20,
-    // 直升机巡逻（游戏开始就生成）
-    helicopter: null, heliSpawnTimer: 30, heliKillCooldown: 0,
-    heliBullets: [],
+    // 直升机巡逻（游戏开始就生成2台，永久不离开）
+    helicopters: [], heliBullets: [],
     // 击杀数统计
     killCount: 0,
     // EMP 干扰弹系统
@@ -1422,8 +1388,6 @@ function initGame() {
   };
   // 重置 EMP HUD
   document.getElementById('emp-row').style.display = 'none';
-  // 游戏开始立即生成直升机
-  spawnHelicopter();
 }
 
 function tryTriggerHeadToHead() {
@@ -2736,9 +2700,8 @@ function drawMinimap() {
     miniCtx.fillStyle = 'rgba(255,50,50,0.3)'; miniCtx.beginPath(); miniCtx.arc(tw.x * sx, tw.y * sy, tw.radius * sx, 0, Math.PI * 2); miniCtx.fill();
     miniCtx.fillStyle = '#ff3030'; miniCtx.beginPath(); miniCtx.arc(tw.x * sx, tw.y * sy, 3, 0, Math.PI * 2); miniCtx.fill();
   }
-  // 直升机：绿色三角标记
-  if (game.helicopter) {
-    const h = game.helicopter;
+  // 直升机：绿色三角标记（2台）
+  for (const h of game.helicopters) {
     const blink = Math.floor(performance.now() / 300) % 2;
     miniCtx.fillStyle = blink ? '#ff3030' : '#30ff30';
     miniCtx.save();
