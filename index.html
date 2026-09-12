@@ -231,7 +231,6 @@
   <div id="end-screen" class="lose" style="display: none;">
     <h1 id="end-title">GAME OVER</h1>
     <p id="end-desc">AI 抢先到达终点</p>
-    <div id="leaderboard-box" style="background:rgba(40,40,60,0.6);border:1px solid rgba(255,210,60,0.4);border-radius:8px;padding:10px 16px;margin:10px 0 16px;font-size:12px;color:#bbb;line-height:1.7;"></div>
     <div style="display:flex;gap:12px;justify-content:center;">
       <button id="restart-btn">重新开始</button>
       <button id="back-menu-btn" style="padding:12px 24px;font-size:16px;font-weight:bold;background:#444;color:#fff;border:1px solid #888;border-radius:6px;cursor:pointer;">返回主菜单</button>
@@ -414,38 +413,6 @@ function loadMap(id) {
   }
 }
 
-// ===== 排行榜系统（本地存储） =====
-function initLeaderboard() {
-  const saved = localStorage.getItem('eliminator_leaderboard');
-  if (!saved) {
-    const fresh = {};
-    for (const id of Object.keys(MAPS)) {
-      fresh[id] = { bestTime: Infinity, bestRank: 999, mostKills: 0, games: 0 };
-    }
-    localStorage.setItem('eliminator_leaderboard', JSON.stringify(fresh));
-  }
-}
-function getLeaderboard() {
-  initLeaderboard();
-  try { return JSON.parse(localStorage.getItem('eliminator_leaderboard')); }
-  catch (e) { initLeaderboard(); return JSON.parse(localStorage.getItem('eliminator_leaderboard')); }
-}
-function updateLeaderboard(win, kills, rank) {
-  const lb = getLeaderboard();
-  const mapKey = currentMapId;
-  if (!lb[mapKey]) lb[mapKey] = { bestTime: Infinity, bestRank: 999, mostKills: 0, games: 0 };
-  const entry = lb[mapKey];
-  entry.games = (entry.games || 0) + 1;
-  if (win) {
-    if (game.elapsed < entry.bestTime) entry.bestTime = game.elapsed;
-    if (rank < entry.bestRank) entry.bestRank = rank;
-  }
-  if (kills > entry.mostKills) entry.mostKills = kills;
-  localStorage.setItem('eliminator_leaderboard', JSON.stringify(lb));
-  return entry;
-}
-function fmtTimeOrNA(t) { return (t === Infinity || !isFinite(t)) ? '尚无记录' : fmtTime(t); }
-
 // ===== EMP 干扰弹系统 =====
 function tryUseEMP() {
   if (!game || game.over || !game.player || !game.player.alive) return;
@@ -577,7 +544,6 @@ function updateExplosionParticles(dt) {
   }
 }
 
-initLeaderboard();
 loadMap('field'); // 初始化默认地图
 
 function pointOnRoad(x, y) {
@@ -1265,15 +1231,7 @@ function showEndScreen(win, desc) {
   document.getElementById('end-title').textContent = win ? 'WINNER!' : 'GAME OVER';
   const totalCars = 1 + DIFFICULTY[currentDifficulty].aiCount;
   const rank = win ? 1 : game.allCars().length + 1;
-  // 更新排行榜
-  const entry = updateLeaderboard(win, game.killCount, rank);
   document.getElementById('end-desc').textContent = desc + ` 你排名第 ${rank}/${totalCars}。用时 ${fmtTime(game.elapsed)}，击杀 ${game.killCount} 辆。`;
-  // 显示排行榜
-  const lbBox = document.getElementById('leaderboard-box');
-  const rankText = entry.bestRank === 999 ? '尚无冠军记录' : `第 ${entry.bestRank} 名`;
-  lbBox.innerHTML = `🏆 ${MAP.name} 排行榜<br>` +
-    `最快夺冠：${fmtTimeOrNA(entry.bestTime)} &nbsp;|&nbsp; 最佳排名：${rankText}<br>` +
-    `最多击杀：${entry.mostKills} &nbsp;|&nbsp; 总场次：${entry.games}`;
   screen.style.display = 'block';
 }
 
