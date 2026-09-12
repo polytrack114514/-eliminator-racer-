@@ -185,7 +185,7 @@
     <div class="map-row">
       <div class="map-btn selected" data-map="field"><div class="name">田野</div><div class="desc">绿野乡村<br>树木 · 水坑 · 房屋</div></div>
       <div class="map-btn" data-map="terafab"><div class="name">Terafab Texas</div><div class="desc">德州超级工厂<br>锐角立面 · 发光光带 · 倒影池 · 尖塔</div></div>
-      <div class="map-btn" data-map="port"><div class="name">港口码头</div><div class="desc">集装箱海湾<br>龙门吊 · 海水 · 桥梁 · 隧道</div></div>
+      <div class="map-btn" data-map="port"><div class="name">港口码头</div><div class="desc">集装箱海湾<br>龙门吊 · 海水 · 系缆柱</div></div>
     </div>
     <button id="start-btn">开 始 游 戏</button>
     <div class="tips">
@@ -310,7 +310,6 @@ const MAPS = {
 let currentMapId = 'field';
 let MAP = MAPS.field;
 let ROADS = [], HOUSES = [], TREES = [], PUDDLES = [], OBSTACLES = [], GAS_STATIONS = [];
-let TUNNELS = [], BRIDGES = [];
 
 function loadMap(id) {
   currentMapId = id;
@@ -414,36 +413,6 @@ function loadMap(id) {
     OBSTACLES.push({ x, y, type, r: 14, hp: 2, knocked: false, angle: R() * Math.PI * 2, vx: 0, vy: 0 });
   }
 
-  // ===== 桥梁/隧道系统 =====
-  TUNNELS = [];
-  BRIDGES = [];
-  if (MAP.id === 'port' || currentMapId === 'port') {
-    // 港口地图：2-3 条隧道（沿主干道）+ 2 座跨海大桥
-    const tunnelCount = 3;
-    for (let i = 0; i < tunnelCount; i++) {
-      // 隧道沿横向主干道布置
-      const y = 2500 + i * 5000;
-      const startX = 1500 + R() * 2000;
-      const length = 1800 + R() * 1200;
-      TUNNELS.push({ x: startX, y, w: length, h: 130, axis: 'h' });
-    }
-    // 跨海大桥：连接两侧陆地
-    BRIDGES.push({ x1: WORLD.w * 0.15, y1: WORLD.h * 0.65, x2: WORLD.w * 0.85, y2: WORLD.h * 0.65, w: 100 });
-    BRIDGES.push({ x1: WORLD.w * 0.5, y1: WORLD.h * 0.1, x2: WORLD.w * 0.5, y2: WORLD.h * 0.9, w: 80 });
-  } else {
-    // 其他地图：少量隧道/桥梁作为地形变化
-    const tunnelCount = 2;
-    for (let i = 0; i < tunnelCount; i++) {
-      const isH = R() < 0.5;
-      const pos = 2000 + R() * (WORLD.w - 4000);
-      const len = 1200 + R() * 1000;
-      if (isH) TUNNELS.push({ x: pos, y: 2000 + i * 8000, w: len, h: 110, axis: 'h' });
-      else TUNNELS.push({ x: 2000 + i * 8000, y: pos, w: 110, h: len, axis: 'v' });
-    }
-    // 一座桥
-    BRIDGES.push({ x1: WORLD.w * 0.2, y1: WORLD.h * 0.3, x2: WORLD.w * 0.8, y2: WORLD.h * 0.7, w: 80 });
-  }
-
   // ===== 加油站（撞爆后造成范围伤害） =====
   GAS_STATIONS = [];
   for (let i = 0; i < 6; i++) {
@@ -522,43 +491,41 @@ function spawnEMPDrop() {
   addKillFeed(null, null, 'EMP 干扰弹已空投！地图上显示蓝色标记');
 }
 
-// ===== 直升机巡逻系统（决赛圈阶段触发） =====
+// ===== 直升机巡逻系统（游戏开始即生成） =====
 function spawnHelicopter() {
-  // 直升机从地图边缘进入，绕中心巡逻
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-  if (side === 0) { x = -50; y = Math.random() * WORLD.h; }
-  else if (side === 1) { x = WORLD.w + 50; y = Math.random() * WORLD.h; }
-  else if (side === 2) { x = Math.random() * WORLD.w; y = -50; }
-  else { x = Math.random() * WORLD.w; y = WORLD.h + 50; }
+  // 直升机在安全区边缘附近生成，立即可见
+  const angle = Math.random() * Math.PI * 2;
+  const dist = Math.min(game.zone.radius * 0.9, 1200);
+  const x = game.zone.cx + Math.cos(angle) * dist;
+  const y = game.zone.cy + Math.sin(angle) * dist;
   game.helicopter = {
     x, y,
     angle: 0,
-    patrolAngle: Math.random() * Math.PI * 2,
-    patrolRadius: Math.min(game.zone.radius * 1.2, 1500),
+    patrolAngle: angle + Math.PI,
+    patrolRadius: Math.min(game.zone.radius * 1.0, 1200),
     altitude: 0,
     rotorAngle: 0,
     target: null,
-    state: 'entering',
-    shootCooldown: 1.5,
+    state: 'patrol',
+    shootCooldown: 5,
+    lifeTime: 0,
   };
   game.heliBullets = [];
   addKillFeed(null, null, '🚁 武装直升机进入战场！注意扫射！');
 }
 function updateHelicopter(dt) {
   if (!game.helicopter) {
-    // 决赛圈阶段后每 35 秒尝试生成直升机
-    if (game.finalPhase) {
-      game.heliSpawnTimer += dt;
-      if (game.heliSpawnTimer > 35) {
-        game.heliSpawnTimer = 0;
-        spawnHelicopter();
-      }
+    // 游戏开始就有直升机，被击落/离开后 25 秒重生
+    game.heliSpawnTimer += dt;
+    if (game.heliSpawnTimer > 25) {
+      game.heliSpawnTimer = 0;
+      spawnHelicopter();
     }
     return;
   }
   const h = game.helicopter;
   h.rotorAngle += dt * 35;
+  // 巡逻中心跟随当前安全区中心
   const cx = game.zone.cx, cy = game.zone.cy;
   if (h.state === 'entering') {
     // 飞向巡逻轨道
@@ -581,10 +548,10 @@ function updateHelicopter(dt) {
     h.x += dx * 3 * dt;
     h.y += dy * 3 * dt;
     h.angle = Math.atan2(dy, dx);
-    // 扫射：每 2 秒锁定区域内的一辆车
+    // 扫射：每 5 秒锁定区域内的一辆车，给玩家躲避时间
     h.shootCooldown -= dt;
     if (h.shootCooldown <= 0) {
-      h.shootCooldown = 2.0 + Math.random() * 1.5;
+      h.shootCooldown = 5 + Math.random() * 2;
       // 选择区域内最靠中心的活车
       let target = null, td = Infinity;
       for (const c of game.allCars()) {
@@ -593,19 +560,19 @@ function updateHelicopter(dt) {
       }
       if (target) {
         h.target = target;
-        // 发射多发子弹
-        for (let i = 0; i < 5; i++) {
-          const spread = (Math.random() - 0.5) * 0.3;
+        // 发射 3 发子弹（减少数量，给躲避空间）
+        for (let i = 0; i < 3; i++) {
+          const spread = (Math.random() - 0.5) * 0.4;
           const aimAngle = Math.atan2(target.y - h.y, target.x - h.x) + spread;
           game.heliBullets.push({
             x: h.x, y: h.y,
-            vx: Math.cos(aimAngle) * 800,
-            vy: Math.sin(aimAngle) * 800,
+            vx: Math.cos(aimAngle) * 600,
+            vy: Math.sin(aimAngle) * 600,
             life: 2.5,
             fromHeli: true,
           });
         }
-        addKillFeed(null, null, '🚁 直升机扫射！');
+        addKillFeed(null, null, '🚁 直升机扫射！注意躲避！');
       }
     }
   }
@@ -629,13 +596,14 @@ function updateHelicopter(dt) {
       game.heliBullets.splice(i, 1);
     }
   }
-  // 检查是否离开（如果决赛圈结束或直升机生存超时）
-  if (game.heliSpawnTimer > 90 && h.state === 'patrol') {
+  // 直升机生存 60 秒后离开
+  h.lifeTime = (h.lifeTime || 0) + dt;
+  if (h.lifeTime > 60 && h.state === 'patrol') {
     h.state = 'leaving';
   }
   if (h.state === 'leaving') {
     const dx = h.x - cx, dy = h.y - cy, d = Math.hypot(dx, dy);
-    if (d < 50) game.helicopter = null;
+    if (d < 50 || h.lifeTime > 75) game.helicopter = null;
     else {
       h.x += dx / d * 300 * dt;
       h.y += dy / d * 300 * dt;
@@ -1442,8 +1410,8 @@ function initGame() {
     elapsed: 0,
     // 龙卷风系统
     tornadoes: [], tornadoTimer: 20,
-    // 直升机巡逻（决赛圈阶段）
-    helicopter: null, heliSpawnTimer: 0, heliKillCooldown: 0,
+    // 直升机巡逻（游戏开始就生成）
+    helicopter: null, heliSpawnTimer: 30, heliKillCooldown: 0,
     heliBullets: [],
     // 击杀数统计
     killCount: 0,
@@ -1454,6 +1422,8 @@ function initGame() {
   };
   // 重置 EMP HUD
   document.getElementById('emp-row').style.display = 'none';
+  // 游戏开始立即生成直升机
+  spawnHelicopter();
 }
 
 function tryTriggerHeadToHead() {
@@ -2196,20 +2166,6 @@ function render() {
   ctx.restore();
   // 天气覆盖层
   drawWeatherOverlay();
-  // 隧道视野受限：当玩家进入隧道时，屏幕四周变暗，模拟视野受限
-  if (game.player && game.player.alive && carInTunnel(game.player.x, game.player.y)) {
-    const cx = canvas.width / 2, cy = canvas.height / 2;
-    const grad = ctx.createRadialGradient(cx, cy, Math.min(canvas.width, canvas.height) * 0.12, cx, cy, Math.min(canvas.width, canvas.height) * 0.55);
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(0.5, 'rgba(0,0,0,0.55)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.92)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 提示
-    ctx.fillStyle = 'rgba(255,210,60,0.85)';
-    ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('🚇 隧道内 - 视野受限', cx, 30);
-  }
   // 1v1 时绘制指向检查点的箭头
   if (game.h2h && game.h2h.checkpoint && game.h2h.phase === 'racing') {
     drawDirectionArrow(game.h2h.checkpoint, '#ffd33d');
@@ -2273,136 +2229,8 @@ function drawWorld() {
       ctx.fillRect(gx + (h % 60) - 30, gy + ((h >> 8) % 60) - 30, 2, 2);
     }
   }
-  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawBridges(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1); drawObstacles(x0, y0, x1, y1); drawTunnels(x0, y0, x1, y1);
+  drawRoads(x0, y0, x1, y1); drawPuddles(x0, y0, x1, y1); drawHouses(x0, y0, x1, y1); drawTrees(x0, y0, x1, y1); drawObstacles(x0, y0, x1, y1);
   ctx.strokeStyle = '#ff5252'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
-}
-
-// ===== 桥梁渲染 =====
-function drawBridges(x0, y0, x1, y1) {
-  for (const b of BRIDGES) {
-    const dx = b.x2 - b.x1, dy = b.y2 - b.y1, len = Math.hypot(dx, dy);
-    if (len < 1) continue;
-    // 简单包围盒判断
-    const minX = Math.min(b.x1, b.x2) - 50, maxX = Math.max(b.x1, b.x2) + 50;
-    const minY = Math.min(b.y1, b.y2) - 50, maxY = Math.max(b.y1, b.y2) + 50;
-    if (maxX < x0 || minX > x1 || maxY < y0 || minY > y1) continue;
-    const nx = -dy / len, ny = dx / len, off = b.w / 2;
-    // 水面阴影（桥下）
-    ctx.fillStyle = 'rgba(0,40,80,0.5)';
-    ctx.beginPath();
-    ctx.moveTo(b.x1 + nx*off, b.y1 + ny*off);
-    ctx.lineTo(b.x2 + nx*off, b.y2 + ny*off);
-    ctx.lineTo(b.x2 - nx*off, b.y2 - ny*off);
-    ctx.lineTo(b.x1 - nx*off, b.y1 - ny*off);
-    ctx.closePath(); ctx.fill();
-    // 桥面（深色路面）
-    ctx.fillStyle = '#3a3a3a';
-    ctx.beginPath();
-    ctx.moveTo(b.x1 + nx*off, b.y1 + ny*off);
-    ctx.lineTo(b.x2 + nx*off, b.y2 + ny*off);
-    ctx.lineTo(b.x2 - nx*off, b.y2 - ny*off);
-    ctx.lineTo(b.x1 - nx*off, b.y1 - ny*off);
-    ctx.closePath(); ctx.fill();
-    // 桥面边线
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(b.x1 + nx*off, b.y1 + ny*off); ctx.lineTo(b.x2 + nx*off, b.y2 + ny*off); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(b.x1 - nx*off, b.y1 - ny*off); ctx.lineTo(b.x2 - nx*off, b.y2 - ny*off); ctx.stroke();
-    // 中央黄线
-    ctx.strokeStyle = '#ffd33d'; ctx.lineWidth = 2; ctx.setLineDash([15, 10]);
-    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke(); ctx.setLineDash([]);
-    // 桥墩（每隔一段距离）
-    const pillars = Math.max(2, Math.floor(len / 400));
-    for (let i = 1; i < pillars; i++) {
-      const t = i / pillars;
-      const px = b.x1 + dx * t, py = b.y1 + dy * t;
-      ctx.fillStyle = '#555';
-      ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.beginPath(); ctx.arc(px + 2, py + 2, 8, 0, Math.PI * 2); ctx.fill();
-    }
-    // 桥头护栏
-    ctx.fillStyle = '#888';
-    ctx.fillRect(b.x1 - 4, b.y1 - 4, 8, 8);
-    ctx.fillRect(b.x2 - 4, b.y2 - 4, 8, 8);
-  }
-}
-
-// ===== 隧道渲染（带视野受限效果） =====
-function drawTunnels(x0, y0, x1, y1) {
-  for (const tn of TUNNELS) {
-    if (tn.x + tn.w < x0 || tn.x > x1 || tn.y + tn.h < y0 || tn.y - 50 > y1) continue;
-    if (tn.axis === 'h') {
-      // 水平隧道
-      // 阴影
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(tn.x, tn.y - tn.h/2, tn.w, tn.h);
-      // 隧道内部（更暗）
-      ctx.fillStyle = '#050505';
-      ctx.fillRect(tn.x + 4, tn.y - tn.h/2 + 4, tn.w - 8, tn.h - 8);
-      // 入口/出口光晕
-      const grad1 = ctx.createLinearGradient(tn.x, 0, tn.x + 80, 0);
-      grad1.addColorStop(0, 'rgba(20,20,25,0.95)');
-      grad1.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad1; ctx.fillRect(tn.x, tn.y - tn.h/2, 80, tn.h);
-      const grad2 = ctx.createLinearGradient(tn.x + tn.w - 80, 0, tn.x + tn.w, 0);
-      grad2.addColorStop(0, 'rgba(0,0,0,0)');
-      grad2.addColorStop(1, 'rgba(20,20,25,0.95)');
-      ctx.fillStyle = grad2; ctx.fillRect(tn.x + tn.w - 80, tn.y - tn.h/2, 80, tn.h);
-      // 隧道顶（拱形）
-      ctx.fillStyle = '#3a3a3a';
-      ctx.fillRect(tn.x, tn.y - tn.h/2 - 8, tn.w, 8);
-      ctx.fillStyle = '#2a2a2a';
-      ctx.fillRect(tn.x, tn.y - tn.h/2 - 12, tn.w, 4);
-      // 隧道底部边沿
-      ctx.fillStyle = '#3a3a3a';
-      ctx.fillRect(tn.x, tn.y + tn.h/2, tn.w, 6);
-      // 隧道灯（每隔一段距离）
-      for (let lx = tn.x + 60; lx < tn.x + tn.w - 30; lx += 120) {
-        ctx.fillStyle = 'rgba(255,230,150,0.5)';
-        ctx.fillRect(lx, tn.y - tn.h/2 + 4, 6, 3);
-        ctx.fillStyle = 'rgba(255,230,150,0.15)';
-        ctx.beginPath(); ctx.arc(lx + 3, tn.y - tn.h/2 + 6, 12, 0, Math.PI * 2); ctx.fill();
-      }
-    } else {
-      // 垂直隧道
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(tn.x - tn.w/2, tn.y, tn.w, tn.h);
-      ctx.fillStyle = '#050505';
-      ctx.fillRect(tn.x - tn.w/2 + 4, tn.y + 4, tn.w - 8, tn.h - 8);
-      // 入口光晕
-      const grad1 = ctx.createLinearGradient(0, tn.y, 0, tn.y + 80);
-      grad1.addColorStop(0, 'rgba(20,20,25,0.95)');
-      grad1.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad1; ctx.fillRect(tn.x - tn.w/2, tn.y, tn.w, 80);
-      const grad2 = ctx.createLinearGradient(0, tn.y + tn.h - 80, 0, tn.y + tn.h);
-      grad2.addColorStop(0, 'rgba(0,0,0,0)');
-      grad2.addColorStop(1, 'rgba(20,20,25,0.95)');
-      ctx.fillStyle = grad2; ctx.fillRect(tn.x - tn.w/2, tn.y + tn.h - 80, tn.w, 80);
-      // 隧道边墙
-      ctx.fillStyle = '#3a3a3a';
-      ctx.fillRect(tn.x - tn.w/2 - 8, tn.y, 8, tn.h);
-      ctx.fillRect(tn.x + tn.w/2, tn.y, 8, tn.h);
-      // 隧道灯
-      for (let ly = tn.y + 60; ly < tn.y + tn.h - 30; ly += 120) {
-        ctx.fillStyle = 'rgba(255,230,150,0.5)';
-        ctx.fillRect(tn.x - tn.w/2 + 4, ly, 3, 6);
-        ctx.fillStyle = 'rgba(255,230,150,0.15)';
-        ctx.beginPath(); ctx.arc(tn.x - tn.w/2 + 6, ly + 3, 12, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-  }
-}
-
-// 判断车辆是否在隧道内（视野受限）
-function carInTunnel(x, y) {
-  for (const tn of TUNNELS) {
-    if (tn.axis === 'h') {
-      if (x > tn.x && x < tn.x + tn.w && Math.abs(y - tn.y) < tn.h/2) return true;
-    } else {
-      if (y > tn.y && y < tn.y + tn.h && Math.abs(x - tn.x) < tn.w/2) return true;
-    }
-  }
-  return false;
 }
 
 function drawHouses(x0, y0, x1, y1) {
@@ -2920,17 +2748,6 @@ function drawMinimap() {
     miniCtx.moveTo(5, 0); miniCtx.lineTo(-3, -3); miniCtx.lineTo(-3, 3);
     miniCtx.closePath(); miniCtx.fill();
     miniCtx.restore();
-  }
-  // 隧道：暗色矩形标记
-  for (const tn of TUNNELS) {
-    miniCtx.fillStyle = 'rgba(80,60,30,0.5)';
-    if (tn.axis === 'h') miniCtx.fillRect(tn.x * sx, (tn.y - tn.h/2) * sy, tn.w * sx, tn.h * sy);
-    else miniCtx.fillRect((tn.x - tn.w/2) * sx, tn.y * sy, tn.w * sx, tn.h * sy);
-  }
-  // 桥梁：橙色线
-  for (const b of BRIDGES) {
-    miniCtx.strokeStyle = '#ff8c00'; miniCtx.lineWidth = 1.5;
-    miniCtx.beginPath(); miniCtx.moveTo(b.x1 * sx, b.y1 * sy); miniCtx.lineTo(b.x2 * sx, b.y2 * sy); miniCtx.stroke();
   }
   if (game.h2h && game.h2h.checkpoint) { const cp = game.h2h.checkpoint; miniCtx.fillStyle = '#ffd33d'; miniCtx.beginPath(); miniCtx.arc(cp.x * sx, cp.y * sy, 3, 0, Math.PI * 2); miniCtx.fill(); }
   for (const d of game.aiDuels) { miniCtx.fillStyle = '#ff8c00'; miniCtx.beginPath(); miniCtx.arc(d.checkpoint.x * sx, d.checkpoint.y * sy, 2.5, 0, Math.PI * 2); miniCtx.fill(); }
