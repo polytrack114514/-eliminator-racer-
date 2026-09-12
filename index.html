@@ -491,7 +491,7 @@ function spawnEMPDrop() {
   addKillFeed(null, null, 'EMP 干扰弹已空投！地图上显示蓝色标记');
 }
 
-// ===== 直升机巡逻系统（游戏开始即生成2台，永久巡逻不离开） =====
+// ===== 直升机巡逻系统（游戏开始即生成2台，自动随机巡逻，决赛飞到终点附近） =====
 function spawnHelicopter(patrolOffset) {
   // 直升机在安全区边缘附近生成，立即可见
   const angle = (patrolOffset !== undefined ? patrolOffset : Math.random() * Math.PI * 2);
@@ -501,42 +501,57 @@ function spawnHelicopter(patrolOffset) {
   const heli = {
     x, y,
     angle: 0,
-    patrolAngle: angle,
-    patrolRadius: Math.min(game.zone.radius * 1.0, 1200),
     rotorAngle: 0,
     target: null,
-    state: 'patrol',
     shootCooldown: 5 + Math.random() * 3,
+    // 随机巡逻目标点
+    patrolTarget: pickHeliPatrolPoint(angle),
+    patrolSpeed: 220 + Math.random() * 80,
   };
   game.helicopters.push(heli);
   if (game.helicopters.length === 1) addKillFeed(null, null, '🚁 武装直升机进入战场！注意扫射！');
 }
+// 选取直升机随机巡逻目标点（围绕当前巡逻中心）
+function pickHeliPatrolPoint(seedAngle) {
+  // 巡逻中心：决赛阶段为终点附近，否则为安全区中心
+  const ccx = (game.finalPhase && game.finalPoint) ? game.finalPoint.x : game.zone.cx;
+  const ccy = (game.finalPhase && game.finalPoint) ? game.finalPoint.y : game.zone.cy;
+  const r = 600 + Math.random() * 800;
+  const a = (seedAngle !== undefined ? seedAngle : Math.random() * Math.PI * 2) + (Math.random() - 0.5) * 2;
+  return { x: ccx + Math.cos(a) * r, y: ccy + Math.sin(a) * r };
+}
 function updateHelicopter(dt) {
   // 始终保持 2 台直升机
   while (game.helicopters.length < 2) {
-    spawnHelicopter(game.helicopters.length === 0 ? 0 : Math.PI); // 两台对角分布
+    spawnHelicopter(game.helicopters.length === 0 ? 0 : Math.PI);
   }
   const cx = game.zone.cx, cy = game.zone.cy;
+  // 决赛阶段巡逻中心改为终点附近
+  const pcx = (game.finalPhase && game.finalPoint) ? game.finalPoint.x : cx;
+  const pcy = (game.finalPhase && game.finalPoint) ? game.finalPoint.y : cy;
   for (let hi = 0; hi < game.helicopters.length; hi++) {
     const h = game.helicopters[hi];
     h.rotorAngle += dt * 35;
-    // 绕圈巡逻
-    h.patrolAngle += dt * 0.4;
-    const tx = cx + Math.cos(h.patrolAngle) * h.patrolRadius;
-    const ty = cy + Math.sin(h.patrolAngle) * h.patrolRadius;
-    const dx = tx - h.x, dy = ty - h.y;
-    h.x += dx * 3 * dt;
-    h.y += dy * 3 * dt;
-    h.angle = Math.atan2(dy, dx);
+    // 飞向随机巡逻目标点
+    const dx = h.patrolTarget.x - h.x, dy = h.patrolTarget.y - h.y, d = Math.hypot(dx, dy);
+    if (d < 80) {
+      // 到达目标点，选取新的随机巡逻点
+      h.patrolTarget = pickHeliPatrolPoint();
+    } else {
+      const sp = h.patrolSpeed;
+      h.x += dx / d * sp * dt;
+      h.y += dy / d * sp * dt;
+      h.angle = Math.atan2(dy, dx);
+    }
     // 扫射：每 5-7 秒锁定区域内的一辆车，给玩家躲避时间
     h.shootCooldown -= dt;
     if (h.shootCooldown <= 0) {
       h.shootCooldown = 5 + Math.random() * 2;
-      // 选择区域内最靠中心的活车
+      // 选择巡逻中心附近最靠中心的活车
       let target = null, td = Infinity;
       for (const c of game.allCars()) {
-        const d = Math.hypot(c.x - cx, c.y - cy);
-        if (d < game.zone.radius + 200 && d < td) { td = d; target = c; }
+        const dd = Math.hypot(c.x - pcx, c.y - pcy);
+        if (dd < game.zone.radius + 300 && dd < td) { td = dd; target = c; }
       }
       if (target) {
         h.target = target;
